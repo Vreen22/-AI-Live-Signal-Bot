@@ -1,0 +1,126 @@
+
+<!doctype html><html lang="ps" dir="rtl"><head><meta charset="utf-8"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="AI Signals"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07110c"><title>AI Live Signal V8</title>
+<style>
+body{margin:0;background:#07110c;color:#eef8f1;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif}header{padding:18px 15px 3px;font-size:22px;font-weight:800}.sub{padding:0 15px 12px;color:#91a598}.card{margin:8px 13px;padding:14px;border:1px solid #294532;border-radius:14px;background:#0b1710}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}select,button{width:100%;padding:12px;border-radius:10px;border:1px solid #2b4b36;background:#102017;color:#eef8f1}.sig{font-size:28px;font-weight:800}.buy{color:#49df82}.sell{color:#e36a6a}.none,.warn{color:#e2bd65}.metric{padding:9px;background:#102017;border-radius:9px}canvas{width:100%;height:290px;background:#08120d;border-radius:10px}.ready{color:#49df82}
+</style><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#0b0f14"></head><body>
+<header>🤖 AI Live Signal Bot V17</header><div class="sub">13 Live Crypto + Forex/Broker Sources • Unified Live Workflow • Live Chart • SMC • AUTO TRADE: OFF</div>
+<div class="card"><div class="grid"><select id="provider"></select><select id="symbol"><option value="BTCUSDT">BTC/USDT</option><option value="ETHUSDT">ETH/USDT</option></select><select id="tf"><option value="1m">1M</option><option value="5m" selected>5M</option><option value="15m">15M</option><option value="1h">1H</option></select><button id="go">🔴 Connect</button></div><p id="status">Offline</p></div>
+<div class="card"><canvas id="chart"></canvas></div>
+<div class="card"><div id="sig" class="sig none">⚪ NO TRADE</div><div class="grid"><div class="metric">Confidence<br><b id="conf">0%</b></div><div class="metric">Price<br><b id="price">—</b></div><div class="metric">RSI<br><b id="rsi">—</b></div><div class="metric">Entry<br><b id="entry">—</b></div><div class="metric">SL<br><b id="sl">—</b></div><div class="metric">TP1<br><b id="tp">—</b></div></div><p id="reason">V12: Source → Market → Symbol → Timeframe → Live Chart → Signal V10: 10 public crypto adapters + 3 credentialed broker adapters.</p></div>
+<script>
+const cv=document.querySelector("#chart"),ctx=cv.getContext("2d"),A=[];function fit(){cv.width=cv.clientWidth*devicePixelRatio;cv.height=290*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);draw()}addEventListener("resize",fit);
+function draw(){let w=cv.clientWidth,h=290,a=A.slice(-60);ctx.clearRect(0,0,w,h);if(!a.length)return;let hi=Math.max(...a.map(x=>x.high)),lo=Math.min(...a.map(x=>x.low)),cw=w/a.length,s=h/(hi-lo||1),Y=v=>(hi-v)*s;a.forEach((x,i)=>{let X=i*cw+cw/2;ctx.beginPath();ctx.moveTo(X,Y(x.high));ctx.lineTo(X,Y(x.low));ctx.stroke();ctx.fillStyle=x.close>=x.open?"#49df82":"#e35d5d";ctx.fillRect(X-cw*.3,Y(Math.max(x.open,x.close)),Math.max(2,cw*.6),Math.max(1,Math.abs(Y(x.open)-Y(x.close))))})}
+fetch("/api/providers").then(r=>r.json()).then(ps=>{ps.forEach(p=>{let o=document.createElement("option");o.value=p.id;o.textContent=p.name+(p.live_adapter?" — LIVE":" — adapter");provider.appendChild(o)})});
+function show(r,c){sig.textContent=r.signal==="BUY"?"🟢 BUY":r.signal==="SELL"?"🔴 SELL":"⚪ NO TRADE";sig.className="sig "+(r.signal==="BUY"?"buy":r.signal==="SELL"?"sell":"none");conf.textContent=r.confidence+"%";price.textContent=c.close;rsi.textContent=r.rsi??"—";entry.textContent=r.entry??"—";sl.textContent=r.stop_loss??"—";tp.textContent=r.tp1??"—";reason.textContent=r.reason||"—"}
+go.onclick=()=>{A.length=0;let p=provider.value,h=location.host,pr=location.protocol==="https:"?"wss":"ws",w=new WebSocket(`${pr}://${h}/ws/live?provider=${p}&symbol=${symbol.value}&interval=${tf.value}`);w.onopen=()=>status.innerHTML='<span class=ready>LIVE</span>';w.onmessage=e=>{let d=JSON.parse(e.data);if(d.type==="live_price")price.textContent=d.price;if(d.type==="analysis"){A.push(d.candle);draw();show(d.result,d.candle)}if(d.type==="adapter")status.innerHTML=d.status==="live"?'<span class=ready>LIVE • '+d.provider.toUpperCase()+'</span>':'<span class=warn>'+d.message+'</span>'};w.onclose=()=>status.textContent="Disconnected"};fit();
+</script>
+<div id="v12-workflow" style="margin:12px 0;padding:12px;border:1px solid #2b2f36;border-radius:14px;background:#0d1117">
+  <div style="font-weight:700;margin-bottom:8px">LIVE WORKFLOW</div>
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
+    <select id="v12Source"></select>
+    <select id="v12Market"><option value="crypto">Crypto</option><option value="forex">Forex</option><option value="metals">Metals</option></select>
+    <select id="v12Symbol"></select>
+    <select id="v12Tf"><option>1m</option><option selected>5m</option><option>15m</option><option>30m</option><option>1h</option></select>
+  </div>
+  <div id="v12Status" style="margin-top:8px;font-size:13px;opacity:.85">Choose source and instrument.</div>
+</div>
+<script>
+(async()=>{
+  const $=id=>document.getElementById(id);
+  const src=$("v12Source"), market=$("v12Market"), sym=$("v12Symbol"), tf=$("v12Tf"), st=$("v12Status");
+  let providers=[], instruments={};
+  try{
+    providers=await (await fetch("/api/providers")).json();
+    instruments=await (await fetch("/api/instruments")).json();
+  }catch(e){ st.textContent="Backend connection required."; return; }
+  const active=providers.filter(p=>p.live_adapter);
+  src.innerHTML=active.map(p=>`<option value="${p.id}">${p.name||p.id} — LIVE</option>`).join("");
+  function fillSymbols(){
+    const arr=instruments[market.value]||[];
+    sym.innerHTML=arr.map(x=>`<option value="${x.id}">${x.label}</option>`).join("");
+    refresh();
+  }
+  function refresh(){
+    const p=active.find(x=>x.id===src.value);
+    st.textContent=p ? `${p.name||p.id} • ${sym.options[sym.selectedIndex]?.text||""} • ${tf.value} • LIVE DATA` : "Select a live source.";
+  }
+  market.onchange=fillSymbols; src.onchange=refresh; sym.onchange=refresh; tf.onchange=refresh;
+  fillSymbols();
+})();
+</script>
+
+<div id="smc-confirmations-v13" style="margin:12px 0;padding:12px;border:1px solid #2b2f36;border-radius:14px;background:#0d1117">
+  <div style="font-weight:700;margin-bottom:8px">SMC CONFIRMATIONS</div>
+  <div style="font-size:13px;line-height:1.8">
+    Liquidity Grab → BOS / CHoCH → FVG → Retest → EMA 9/21/50 → RSI 14 → Momentum
+  </div>
+  <div style="margin-top:8px;font-size:12px;opacity:.75">
+    Signal rule: weak setups = NO TRADE • AUTO TRADE: OFF
+  </div>
+</div>
+
+<div id="chart-annotations-v14" style="margin:12px 0;padding:12px;border:1px solid #2b2f36;border-radius:14px;background:#0d1117">
+  <div style="font-weight:700;margin-bottom:8px">LIVE CHART ANNOTATIONS</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:12px">
+    <span>🟦 Liquidity</span><span>🟨 BOS/CHoCH</span><span>🟪 FVG</span>
+    <span>🟢 BUY</span><span>🔴 SELL</span><span>⚪ NO TRADE</span>
+  </div>
+  <div id="v14Levels" style="margin-top:8px;font-size:13px;line-height:1.7">Waiting for live signal…</div>
+</div>
+<script>
+window.renderV14Signal=function(sig){
+  const el=document.getElementById("v14Levels"); if(!el) return;
+  const f=v=>typeof v==="number"?Number(v).toFixed(5):"—";
+  el.innerHTML =
+    `<b>${sig.signal||"NO TRADE"}</b> • Confidence: ${sig.confidence??0}%<br>`+
+    `Entry: ${f(sig.entry)} • SL: ${f(sig.sl)} • TP1: ${f(sig.tp1)} • TP2: ${f(sig.tp2)}<br>`+
+    `Liquidity: ${((sig.confirmations||[]).find(x=>x.name==="Liquidity Grab")?.bull ||
+                   (sig.confirmations||[]).find(x=>x.name==="Liquidity Grab")?.bear)?"✓":"—"} `+
+    `• BOS/CHoCH: ${((sig.confirmations||[]).find(x=>x.name==="BOS / CHoCH")?.bull ||
+                      (sig.confirmations||[]).find(x=>x.name==="BOS / CHoCH")?.bear)?"✓":"—"} `+
+    `• FVG: ${((sig.confirmations||[]).find(x=>x.name==="FVG")?.bull ||
+                (sig.confirmations||[]).find(x=>x.name==="FVG")?.bear)?"✓":"—"}`;
+};
+</script>
+
+<div id="provider-health-v15" style="margin:12px 0;padding:12px;border:1px solid #2b2f36;border-radius:14px;background:#0d1117">
+  <div style="font-weight:700;margin-bottom:8px">PROVIDER LIVE STATUS</div>
+  <div id="v15Health" style="font-size:13px;line-height:1.8">Checking provider configuration…</div>
+</div>
+<script>
+(async()=>{
+ const el=document.getElementById("v15Health"); if(!el)return;
+ try{
+  const d=await (await fetch("/api/provider-health")).json();
+  const labels={twelvedata:"Twelve Data",finnhub:"Finnhub",alpaca:"Alpaca",polygon:"Polygon",
+    alphavantage:"Alpha Vantage",intrinio:"Intrinio",dxfeed:"dxFeed",barchart:"Barchart",eodhd:"EODHD"};
+  el.innerHTML=Object.entries(d).map(([k,v])=>
+   `<div>${v.configured?"🟢 READY":"🟡 API KEY REQUIRED"} ${labels[k]||k} <span style="opacity:.65">(${v.mode})</span></div>`
+  ).join("");
+ }catch(e){el.textContent="Backend status unavailable";}
+})();
+</script>
+
+<div id="live-status-v16" style="margin:12px 0;padding:12px;border:1px solid #2b2f36;border-radius:14px;background:#0d1117">
+  <div style="font-weight:700;margin-bottom:8px">REAL FEED STATUS</div>
+  <div id="v16LiveStatus" style="font-size:13px">Waiting for a live adapter to receive data…</div>
+</div>
+<script>
+(async()=>{
+ const el=document.getElementById("v16LiveStatus"); if(!el)return;
+ async function refresh(){
+  try{
+   const d=await (await fetch("/api/live-status")).json();
+   const keys=Object.keys(d);
+   el.innerHTML=keys.length?keys.map(k=>{
+     const x=d[k];
+     return `<div>${x.live?"🟢 LIVE":"⚪ WAITING"} <b>${k}</b> — ${x.age_seconds==null?"no data":x.age_seconds+" sec ago"}</div>`;
+   }).join(""):"No feed has delivered data yet.";
+  }catch(e){el.textContent="Live status unavailable";}
+ }
+ refresh(); setInterval(refresh,3000);
+})();
+</script>
+<script>
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(()=>{});
+</script></body></html>

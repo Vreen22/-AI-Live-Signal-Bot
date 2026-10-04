@@ -1,0 +1,232 @@
+[
+  {
+    "id": "binance",
+    "name": "Binance",
+    "markets": [
+      "crypto"
+    ],
+    "live_adapter": true
+  },
+  {
+    "id": "coinbase",
+    "name": "Coinbase",
+    "markets": [
+      "crypto"
+    ],
+    "live_adapter": true
+  },
+  {
+    "id": "kraken",
+    "name": "Kraken",
+    "markets": [
+      "crypto"
+    ],
+    "live_adapter": true
+  },
+  {
+    "id": "okx",
+    "name": "OKX",
+    "markets": [
+      "crypto"
+    ],
+    "live_adapter": true
+  },
+  {
+    "id": "bybit",
+    "name": "Bybit",
+    "markets": [
+      "crypto"
+    ],
+    "live_adapter": true
+  },
+  {
+    "id": "kucoin",
+    "name": "KuCoin",
+    "markets": [
+      "crypto"
+    ],
+    "live_adapter": true
+  },
+  {
+    "id": "gateio",
+    "name": "Gate.io",
+    "markets": [
+      "crypto"
+    ],
+    "live_adapter": true
+  },
+  {
+    "id": "bitfinex",
+    "name": "Bitfinex",
+    "markets": [
+      "crypto"
+    ],
+    "live_adapter": true
+  },
+  {
+    "id": "bitstamp",
+    "name": "Bitstamp",
+    "markets": [
+      "crypto"
+    ],
+    "live_adapter": true
+  },
+  {
+    "id": "crypto_com",
+    "name": "Crypto.com",
+    "markets": [
+      "crypto"
+    ],
+    "live_adapter": true
+  },
+  {
+    "id": "twelvedata",
+    "name": "Twelve Data",
+    "markets": [
+      "crypto",
+      "forex",
+      "stocks",
+      "commodities"
+    ],
+    "live_adapter": true,
+    "credential_gated": true,
+    "mode": "websocket",
+    "key_env": "TWELVE_DATA_API_KEY"
+  },
+  {
+    "id": "polygon",
+    "name": "Polygon",
+    "markets": [
+      "stocks",
+      "forex",
+      "crypto"
+    ],
+    "live_adapter": true,
+    "credential_gated": true,
+    "mode": "websocket",
+    "key_env": "POLYGON_API_KEY"
+  },
+  {
+    "id": "finnhub",
+    "name": "Finnhub",
+    "markets": [
+      "stocks",
+      "forex",
+      "crypto"
+    ],
+    "live_adapter": true,
+    "credential_gated": true,
+    "mode": "websocket",
+    "key_env": "FINNHUB_API_KEY"
+  },
+  {
+    "id": "alpaca",
+    "name": "Alpaca",
+    "markets": [
+      "stocks",
+      "crypto"
+    ],
+    "live_adapter": true,
+    "credential_gated": true,
+    "mode": "websocket",
+    "key_env": "ALPACA_API_KEY + ALPACA_SECRET_KEY"
+  },
+  {
+    "id": "alphavantage",
+    "name": "Alpha Vantage",
+    "markets": [
+      "stocks",
+      "forex",
+      "crypto"
+    ],
+    "live_adapter": true,
+    "credential_gated": true,
+    "mode": "api",
+    "key_env": "ALPHAVANTAGE_API_KEY"
+  },
+  {
+    "id": "oanda",
+    "name": "OANDA",
+    "markets": [
+      "forex",
+      "commodities"
+    ],
+    "live_adapter": true,
+    "requires_credentials": true
+  },
+  {
+    "id": "fxcm",
+    "name": "FXCM",
+    "markets": [
+      "forex"
+    ],
+    "live_adapter": true,
+    "requires_credentials": true
+  },
+  {
+    "id": "ig",
+    "name": "IG",
+    "markets": [
+      "forex",
+      "cfds"
+    ],
+    "live_adapter": true,
+    "requires_credentials": true
+  },
+  {
+    "id": "intrinio",
+    "name": "Intrinio",
+    "markets": [
+      "stocks",
+      "options",
+      "forex"
+    ],
+    "live_adapter": true,
+    "credential_gated": true,
+    "mode": "credentialed",
+    "key_env": "INTRINIO_API_KEY"
+  },
+  {
+    "id": "dxfeed",
+    "name": "dxFeed",
+    "markets": [
+      "stocks",
+      "futures",
+      "options",
+      "forex",
+      "crypto"
+    ],
+    "live_adapter": true,
+    "credential_gated": true,
+    "mode": "credentialed",
+    "key_env": "DXFEED_USERNAME + DXFEED_PASSWORD"
+  },
+  {
+    "id": "barchart",
+    "name": "Barchart",
+    "markets": [
+      "stocks",
+      "futures",
+      "forex",
+      "crypto"
+    ],
+    "live_adapter": true,
+    "credential_gated": true,
+    "mode": "credentialed",
+    "key_env": "BARCHART_API_KEY"
+  },
+  {
+    "id": "eodhd",
+    "name": "EODHD",
+    "markets": [
+      "stocks",
+      "forex",
+      "crypto",
+      "etf"
+    ],
+    "live_adapter": true,
+    "credential_gated": true,
+    "mode": "websocket",
+    "key_env": "EODHD_API_TOKEN"
+  }
+]

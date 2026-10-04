@@ -1,0 +1,60 @@
+{
+  "crypto": [
+    {
+      "id": "BTCUSDT",
+      "label": "BTC/USDT"
+    },
+    {
+      "id": "ETHUSDT",
+      "label": "ETH/USDT"
+    },
+    {
+      "id": "SOLUSDT",
+      "label": "SOL/USDT"
+    },
+    {
+      "id": "BNBUSDT",
+      "label": "BNB/USDT"
+    },
+    {
+      "id": "XRPUSDT",
+      "label": "XRP/USDT"
+    }
+  ],
+  "forex": [
+    {
+      "id": "EURUSD",
+      "label": "EUR/USD"
+    },
+    {
+      "id": "GBPUSD",
+      "label": "GBP/USD"
+    },
+    {
+      "id": "USDJPY",
+      "label": "USD/JPY"
+    },
+    {
+      "id": "USDCHF",
+      "label": "USD/CHF"
+    },
+    {
+      "id": "AUDUSD",
+      "label": "AUD/USD"
+    },
+    {
+      "id": "USDCAD",
+      "label": "USD/CAD"
+    },
+    {
+      "id": "NZDUSD",
+      "label": "NZD/USD"
+    }
+  ],
+  "metals": [
+    {
+      "id": "XAUUSD",
+      "label": "XAU/USD (Gold)"
+    }
+  ]
+}
