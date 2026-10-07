@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 BASE = Path(__file__).resolve().parent
 INDEX = BASE / "index.html"
 
-app = FastAPI(title="AI Live Signal Bot V19")
+app = FastAPI(title="AI Live Signal Bot V21")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -224,12 +224,13 @@ def recent_swing_levels(data, lookback=30, pivot=2):
 def analyze(symbol, tf):
     data = list(bars.get((symbol, tf), []))
 
-    # Full EMA50/EMA200 analysis needs at least 200 CLOSED candles.
+    # EMA 50/200 needs at least 200 CLOSED candles.
     if len(data) < 200:
         return {
             "symbol": symbol,
             "timeframe": tf,
             "signal": "NO TRADE",
+            "signal_strength": "WAITING",
             "confidence": 0,
             "reason": f"Waiting for 200 closed candles ({len(data)}/200)",
             "candles": len(data),
@@ -247,6 +248,11 @@ def analyze(symbol, tf):
             "ema200": None,
             "rsi14": None,
             "atr14": None,
+            "swing_high": None,
+            "swing_low": None,
+            "risk": None,
+            "rr_tp1": None,
+            "rr_tp2": None,
             "confirmations": [],
             "smc": {
                 "liquidity_grab": "WAITING",
@@ -259,7 +265,6 @@ def analyze(symbol, tf):
         }
 
     closes = [x["close"] for x in data]
-
     e9 = ema(closes, 9)
     e21 = ema(closes, 21)
     e50 = ema(closes, 50)
@@ -270,125 +275,196 @@ def analyze(symbol, tf):
     last = data[-1]
     prev = data[-2]
 
-    buy = 0
-    sell = 0
-    confirmations = []
-
     liquidity = detect_liquidity(data)
     bos = detect_bos_choch(data)
     fvg = detect_fvg(data)
     momentum = detect_momentum(last, prev)
 
-    # Trend.
+    buy_score = 0
+    sell_score = 0
+    confirmations = []
+
+    # ------------------------------------------------------------
+    # 1) EMA TREND — mandatory directional filter
+    # ------------------------------------------------------------
     if e50 > e200:
-        buy += 2
         ema_state = "BULLISH"
+        buy_score += 2
         confirmations.append("EMA 50 > EMA 200")
-    else:
-        sell += 2
+    elif e50 < e200:
         ema_state = "BEARISH"
+        sell_score += 2
         confirmations.append("EMA 50 < EMA 200")
+    else:
+        ema_state = "NEUTRAL"
 
-    # Fast EMA confirmation.
+    # Fast EMA is a small bonus only.
     if e9 > e21:
-        buy += 1
+        buy_score += 1
     elif e9 < e21:
-        sell += 1
+        sell_score += 1
 
-    # RSI confirmation.
-    if 52 <= r <= 70:
-        buy += 1
+    # ------------------------------------------------------------
+    # 2) RSI — direction-aware and not falsely marked neutral at 70+
+    # ------------------------------------------------------------
+    if 55 <= r <= 75:
         rsi_state = "BULLISH"
+        buy_score += 1
         confirmations.append("RSI bullish")
-    elif 30 <= r <= 48:
-        sell += 1
+    elif 25 <= r <= 45:
         rsi_state = "BEARISH"
+        sell_score += 1
         confirmations.append("RSI bearish")
+    elif r > 75:
+        # Very strong momentum, but overbought. It is NOT a fresh
+        # confirmation by itself; require structure/momentum to agree.
+        rsi_state = "BULLISH_OVERBOUGHT"
+        if e50 > e200:
+            buy_score += 1
+    elif r < 25:
+        rsi_state = "BEARISH_OVERSOLD"
+        if e50 < e200:
+            sell_score += 1
     else:
         rsi_state = "NEUTRAL"
 
-    # BOS / CHoCH.
+    # ------------------------------------------------------------
+    # 3) BOS / CHoCH — mandatory structure confirmation
+    # ------------------------------------------------------------
     if bos == "bullish":
-        buy += 2
+        buy_score += 2
         confirmations.append("BOS/CHoCH bullish")
     elif bos == "bearish":
-        sell += 2
+        sell_score += 2
         confirmations.append("BOS/CHoCH bearish")
 
-    # Liquidity.
+    # ------------------------------------------------------------
+    # 4) Liquidity grab — bonus confirmation
+    # ------------------------------------------------------------
     if liquidity == "bullish":
-        buy += 2
+        buy_score += 2
         confirmations.append("Liquidity grab bullish")
     elif liquidity == "bearish":
-        sell += 2
+        sell_score += 2
         confirmations.append("Liquidity grab bearish")
 
-    # FVG.
+    # ------------------------------------------------------------
+    # 5) FVG — mandatory imbalance confirmation for a trade
+    # ------------------------------------------------------------
     if fvg == "bullish":
-        buy += 1
+        buy_score += 1
         confirmations.append("FVG bullish")
     elif fvg == "bearish":
-        sell += 1
+        sell_score += 1
         confirmations.append("FVG bearish")
 
-    # Momentum.
+    # ------------------------------------------------------------
+    # 6) Momentum — mandatory directional confirmation
+    # ------------------------------------------------------------
     if momentum == "bullish":
-        buy += 1
+        buy_score += 1
         confirmations.append("Momentum bullish")
     elif momentum == "bearish":
-        sell += 1
+        sell_score += 1
         confirmations.append("Momentum bearish")
 
-    # Require stronger agreement before giving a trade.
-    if buy >= 6 and buy > sell:
+    # ------------------------------------------------------------
+    # TRADE RULE
+    # A BUY/SELL is only allowed when the important confirmations
+    # actually agree. This prevents the old situation where the UI
+    # showed BUY while RSI/Liquidity were still neutral/waiting.
+    # ------------------------------------------------------------
+    bullish_core = (
+        e50 > e200
+        and bos == "bullish"
+        and fvg == "bullish"
+        and momentum == "bullish"
+        and rsi_state in ("BULLISH", "BULLISH_OVERBOUGHT")
+    )
+
+    bearish_core = (
+        e50 < e200
+        and bos == "bearish"
+        and fvg == "bearish"
+        and momentum == "bearish"
+        and rsi_state in ("BEARISH", "BEARISH_OVERSOLD")
+    )
+
+    if bullish_core and buy_score > sell_score:
         signal = "BUY"
-        score = buy
-    elif sell >= 6 and sell > buy:
+        score = buy_score
+        core_count = 5
+        signal_strength = "STRONG" if liquidity == "bullish" else "CONFIRMED"
+    elif bearish_core and sell_score > buy_score:
         signal = "SELL"
-        score = sell
+        score = sell_score
+        core_count = 5
+        signal_strength = "STRONG" if liquidity == "bearish" else "CONFIRMED"
     else:
         signal = "NO TRADE"
-        score = max(buy, sell)
+        score = max(buy_score, sell_score)
+        core_count = 0
+        signal_strength = "WAIT"
 
-    # Confidence is a score, not a guarantee of profit.
-    confidence = min(95, max(0, int(45 + score * 6)))
+    # Confidence is an agreement score, not a probability or guarantee.
+    # A confirmed 5-part setup starts at 80%; liquidity can increase it.
+    if signal == "BUY" or signal == "SELL":
+        confidence = 80
+        if liquidity == ("bullish" if signal == "BUY" else "bearish"):
+            confidence += 8
+        if (signal == "BUY" and rsi_state == "BULLISH") or (signal == "SELL" and rsi_state == "BEARISH"):
+            confidence += 4
+        if e9 > e21 and signal == "BUY":
+            confidence += 2
+        if e9 < e21 and signal == "SELL":
+            confidence += 2
+        confidence = min(95, confidence)
+    else:
+        # Show useful confidence while explicitly refusing a trade.
+        confidence = min(79, max(0, int(45 + score * 5)))
 
     entry = last["close"]
     sl = tp1 = tp2 = None
     risk = None
-    rr_tp1 = None
-    rr_tp2 = None
+    rr_tp1 = rr_tp2 = None
     swing_high, swing_low = recent_swing_levels(data, lookback=40, pivot=2)
 
-    # Structure + ATR stop: place the stop beyond the latest confirmed
-    # swing, with an ATR buffer, while enforcing at least 1 ATR of room.
-    # This uses CLOSED candles only and adapts to market volatility.
+    # ------------------------------------------------------------
+    # STRUCTURE + ATR RISK MANAGEMENT
+    # BUY: stop below swing low + ATR buffer, with at least 1 ATR room.
+    # SELL: stop above swing high + ATR buffer, with at least 1 ATR room.
+    # TP1 = 1R, TP2 = 2R.
+    # ------------------------------------------------------------
     if a and a > 0 and signal == "BUY":
         atr_floor = entry - 1.0 * a
         structure_sl = (swing_low - 0.25 * a) if swing_low is not None else atr_floor
         sl = min(structure_sl, atr_floor)
         risk = entry - sl
-        tp1 = entry + risk * 1.0
-        tp2 = entry + risk * 2.0
-        rr_tp1 = 1.0
-        rr_tp2 = 2.0
+        if risk > 0:
+            tp1 = entry + risk
+            tp2 = entry + (2.0 * risk)
+            rr_tp1 = 1.0
+            rr_tp2 = 2.0
 
     elif a and a > 0 and signal == "SELL":
         atr_ceiling = entry + 1.0 * a
         structure_sl = (swing_high + 0.25 * a) if swing_high is not None else atr_ceiling
         sl = max(structure_sl, atr_ceiling)
         risk = sl - entry
-        tp1 = entry - risk * 1.0
-        tp2 = entry - risk * 2.0
-        rr_tp1 = 1.0
-        rr_tp2 = 2.0
+        if risk > 0:
+            tp1 = entry - risk
+            tp2 = entry - (2.0 * risk)
+            rr_tp1 = 1.0
+            rr_tp2 = 2.0
 
+    # Make the displayed SMC states match the actual signal logic.
     return {
         "symbol": symbol,
         "timeframe": tf,
         "signal": signal,
+        "signal_strength": signal_strength,
         "confidence": confidence,
-        "reason": " + ".join(confirmations[-5:]) if confirmations else "No sufficient confirmation",
+        "reason": " + ".join(confirmations[-6:]) if confirmations else "No sufficient confirmation",
         "entry": entry,
         "sl": sl,
         "tp1": tp1,
@@ -405,6 +481,7 @@ def analyze(symbol, tf):
         "risk": risk,
         "rr_tp1": rr_tp1,
         "rr_tp2": rr_tp2,
+        "core_confirmations": core_count,
         "confirmations": confirmations,
         "smc": {
             "liquidity_grab": liquidity.upper() if liquidity else "NONE",
