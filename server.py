@@ -485,16 +485,80 @@ def fetch_binance(symbol, interval, limit=300):
     )
 
 
-async def load_one_history(symbol, tf):
-    try:
-        data = await asyncio.to_thread(
-            fetch_binance,
-            symbol,
-            tf,
-            300,
-        )
+async def fetch_binance_ws_history(symbol, interval, limit=300):
+    """
+    Bootstrap historical klines through Binance's WebSocket API.
 
-        # The last REST kline may still be open.
+    This is deliberately used before REST because Render/shared hosting IPs
+    can receive HTTP 418/429 from Binance REST. The normal market WebSocket
+    does NOT provide historical candles, so the WebSocket API is used for the
+    initial 300-candle snapshot.
+    """
+    url = "wss://ws-api.binance.com:443/ws-api/v3"
+    request_id = f"history-{symbol}-{interval}-{int(time.time() * 1000)}"
+
+    async with websockets.connect(
+        url,
+        ping_interval=20,
+        ping_timeout=20,
+        close_timeout=10,
+        max_size=2**20,
+    ) as ws:
+        await ws.send(json.dumps({
+            "id": request_id,
+            "method": "klines",
+            "params": {
+                "symbol": symbol,
+                "interval": interval,
+                "limit": min(int(limit), 1000),
+            },
+        }))
+
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            raw = await asyncio.wait_for(
+                ws.recv(),
+                timeout=max(1.0, deadline - time.monotonic()),
+            )
+            msg = json.loads(raw)
+
+            if msg.get("id") != request_id:
+                continue
+
+            if msg.get("status") != 200:
+                raise RuntimeError(
+                    f"Binance WS API error: {msg.get('error', msg)}"
+                )
+
+            raw_klines = msg.get("result") or []
+            result = []
+
+            for x in raw_klines:
+                if not isinstance(x, list) or len(x) < 6:
+                    continue
+                result.append({
+                    "time": int(x[0]),
+                    "open": float(x[1]),
+                    "high": float(x[2]),
+                    "low": float(x[3]),
+                    "close": float(x[4]),
+                    "volume": float(x[5]),
+                })
+
+            if not result:
+                raise RuntimeError("Binance WS API returned no klines")
+
+            return result
+
+    raise RuntimeError("Timed out waiting for Binance WS API history")
+
+
+async def load_one_history(symbol, tf):
+    # WebSocket API first: avoids Render shared-IP REST 418/429 problems.
+    try:
+        data = await fetch_binance_ws_history(symbol, tf, 300)
+
+        # The last kline may still be open. Keep CLOSED candles only.
         closed = data[:-1] if len(data) > 1 else []
 
         q = bars[(symbol, tf)]
@@ -505,14 +569,39 @@ async def load_one_history(symbol, tf):
             latest[(symbol, tf)] = analyze(symbol, tf)
 
         print(
-            f"Loaded {symbol} {tf}: "
+            f"Loaded {symbol} {tf} via Binance WS API: "
             f"{len(closed)} closed candles"
         )
-
         return len(closed)
 
-    except Exception as exc:
-        print(f"History error {symbol} {tf}: {exc}")
+    except Exception as ws_exc:
+        print(f"WS history error {symbol} {tf}: {ws_exc}")
+
+    # REST fallback remains available if the WebSocket API is unavailable.
+    try:
+        data = await asyncio.to_thread(
+            fetch_binance,
+            symbol,
+            tf,
+            300,
+        )
+
+        closed = data[:-1] if len(data) > 1 else []
+        q = bars[(symbol, tf)]
+        q.clear()
+        q.extend(closed)
+
+        if q:
+            latest[(symbol, tf)] = analyze(symbol, tf)
+
+        print(
+            f"Loaded {symbol} {tf} via REST fallback: "
+            f"{len(closed)} closed candles"
+        )
+        return len(closed)
+
+    except Exception as rest_exc:
+        print(f"History error {symbol} {tf}: {rest_exc}")
         return 0
 
 
