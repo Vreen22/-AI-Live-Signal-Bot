@@ -198,6 +198,29 @@ def detect_momentum(last, prev):
     return None
 
 
+def recent_swing_levels(data, lookback=30, pivot=2):
+    """Return recent confirmed swing high/low from CLOSED candles only."""
+    if len(data) < (pivot * 2 + 5):
+        return None, None
+
+    window = data[-lookback:] if len(data) > lookback else data
+    swing_highs = []
+    swing_lows = []
+
+    for i in range(pivot, len(window) - pivot):
+        h = window[i]["high"]
+        l = window[i]["low"]
+        left = window[i-pivot:i]
+        right = window[i+1:i+pivot+1]
+        if all(h > x["high"] for x in left + right):
+            swing_highs.append(h)
+        if all(l < x["low"] for x in left + right):
+            swing_lows.append(l)
+
+    return (swing_highs[-1] if swing_highs else None,
+            swing_lows[-1] if swing_lows else None)
+
+
 def analyze(symbol, tf):
     data = list(bars.get((symbol, tf), []))
 
@@ -332,16 +355,33 @@ def analyze(symbol, tf):
 
     entry = last["close"]
     sl = tp1 = tp2 = None
+    risk = None
+    rr_tp1 = None
+    rr_tp2 = None
+    swing_high, swing_low = recent_swing_levels(data, lookback=40, pivot=2)
 
+    # Structure + ATR stop: place the stop beyond the latest confirmed
+    # swing, with an ATR buffer, while enforcing at least 1 ATR of room.
+    # This uses CLOSED candles only and adapts to market volatility.
     if a and a > 0 and signal == "BUY":
-        sl = entry - 1.5 * a
-        tp1 = entry + 1.5 * a
-        tp2 = entry + 3.0 * a
+        atr_floor = entry - 1.0 * a
+        structure_sl = (swing_low - 0.25 * a) if swing_low is not None else atr_floor
+        sl = min(structure_sl, atr_floor)
+        risk = entry - sl
+        tp1 = entry + risk * 1.0
+        tp2 = entry + risk * 2.0
+        rr_tp1 = 1.0
+        rr_tp2 = 2.0
 
     elif a and a > 0 and signal == "SELL":
-        sl = entry + 1.5 * a
-        tp1 = entry - 1.5 * a
-        tp2 = entry - 3.0 * a
+        atr_ceiling = entry + 1.0 * a
+        structure_sl = (swing_high + 0.25 * a) if swing_high is not None else atr_ceiling
+        sl = max(structure_sl, atr_ceiling)
+        risk = sl - entry
+        tp1 = entry - risk * 1.0
+        tp2 = entry - risk * 2.0
+        rr_tp1 = 1.0
+        rr_tp2 = 2.0
 
     return {
         "symbol": symbol,
@@ -360,6 +400,11 @@ def analyze(symbol, tf):
         "ema200": e200,
         "rsi14": r,
         "atr14": a,
+        "swing_high": swing_high,
+        "swing_low": swing_low,
+        "risk": risk,
+        "rr_tp1": rr_tp1,
+        "rr_tp2": rr_tp2,
         "confirmations": confirmations,
         "smc": {
             "liquidity_grab": liquidity.upper() if liquidity else "NONE",
