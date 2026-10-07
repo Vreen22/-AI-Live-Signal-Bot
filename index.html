@@ -1,53 +1,1597 @@
-🤖 AI Live Signal Bot V21
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#06100b">
+<title>AI Live Signal Bot V21</title>
+
+<style>
+:root{
+  --bg:#06100b;
+  --panel:#09150f;
+  --panel2:#0d1d14;
+  --line:#1e5737;
+  --text:#eef8f1;
+  --muted:#91a99b;
+  --green:#21e56d;
+  --red:#ff4d4d;
+  --gold:#f4ca59;
+  --blue:#55a7ff;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+
+.app{
+  max-width:980px;
+  margin:auto;
+  padding:16px 14px 40px;
+}
+
+header{
+  text-align:center;
+  padding:10px 0 18px;
+}
+
+h1{
+  font-size:30px;
+  margin:0 0 8px;
+  font-weight:800;
+}
+
+header p{
+  margin:0;
+  color:var(--muted);
+  font-size:14px;
+  line-height:1.5;
+}
+
+.badge{
+  display:inline-block;
+  margin-top:10px;
+  padding:7px 12px;
+  border-radius:999px;
+  background:#102319;
+  border:1px solid #245c3c;
+  color:var(--green);
+  font-weight:700;
+  font-size:12px;
+}
+
+.card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:16px;
+  margin:12px 0;
+  box-shadow:0 8px 28px #0005;
+}
+
+.controls{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:10px;
+}
+
+.field label{
+  display:block;
+  color:var(--muted);
+  font-size:11px;
+  margin-bottom:6px;
+  text-transform:uppercase;
+}
+
+select{
+  width:100%;
+  border:1px solid #255d3d;
+  background:var(--panel2);
+  color:var(--text);
+  border-radius:12px;
+  padding:13px;
+  font-size:15px;
+}
+
+.statusline{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-top:12px;
+  color:var(--muted);
+  font-size:13px;
+}
+
+.live{
+  color:var(--green);
+}
+
+.offline{
+  color:#ff5d5d;
+}
+
+.chartbox{
+  height:330px;
+  background:#040a07;
+  border-radius:14px;
+  border:1px solid #143824;
+  overflow:hidden;
+}
+
+canvas{
+  width:100%;
+  height:100%;
+  display:block;
+}
+
+.signalrow{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.signal{
+  font-size:34px;
+  font-weight:900;
+  margin:8px 0;
+}
+
+.buy{
+  color:var(--green);
+}
+
+.sell{
+  color:var(--red);
+}
+
+.wait{
+  color:var(--gold);
+}
+
+.conf{
+  font-size:26px;
+  font-weight:800;
+}
+
+.grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:9px;
+  margin-top:12px;
+}
+
+.metric{
+  background:var(--panel2);
+  border-radius:12px;
+  padding:12px;
+}
+
+.metric span{
+  display:block;
+  color:var(--muted);
+  font-size:11px;
+  text-transform:uppercase;
+}
+
+.metric b{
+  display:block;
+  margin-top:5px;
+  font-size:17px;
+}
+
+.sectiontitle{
+  font-size:18px;
+  font-weight:800;
+  margin-bottom:12px;
+}
+
+.checks{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:8px;
+}
+
+.check{
+  display:flex;
+  justify-content:space-between;
+  padding:10px 12px;
+  background:var(--panel2);
+  border-radius:10px;
+  font-size:13px;
+}
+
+.yes{
+  color:var(--green);
+}
+
+.no{
+  color:var(--muted);
+}
+
+.legend{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  color:var(--muted);
+  font-size:13px;
+}
+
+.legend b{
+  color:var(--text);
+}
+
+.auto{
+  text-align:center;
+  padding:13px;
+  background:#101d15;
+  border:1px solid #294d38;
+  border-radius:12px;
+  color:var(--muted);
+}
+
+.auto b{
+  color:var(--green);
+}
+
+.small{
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.5;
+}
+
+.reason{
+  margin-top:12px;
+  padding:10px;
+  border-radius:10px;
+  background:var(--panel2);
+}
+
+@media(max-width:650px){
+
+  .controls{
+    grid-template-columns:1fr 1fr;
+  }
+
+  .grid{
+    grid-template-columns:1fr 1fr;
+  }
+
+  .checks{
+    grid-template-columns:1fr;
+  }
+
+  .chartbox{
+    height:280px;
+  }
+
+  h1{
+    font-size:26px;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+
+<header>
+
+<h1>🤖 AI Live Signal Bot V21</h1>
+
+<p>
 Live Crypto + Forex/Broker Sources • Unified Workflow • Live Chart • SMC Analysis
+</p>
+
+<div class="badge">
 SIGNAL ONLY • AUTO TRADE: OFF
-DATA SOURCE
-MARKET
-CryptoForexMetals
-SYMBOL
-TIMEFRAME
+</div>
+
+</header>
+
+
+<!-- DATA CONTROLS -->
+
+<div class="card">
+
+<div class="controls">
+
+<div class="field">
+
+<label>Data Source</label>
+
+<select id="source"></select>
+
+</div>
+
+
+<div class="field">
+
+<label>Market</label>
+
+<select id="market">
+
+<option value="Crypto">
+Crypto
+</option>
+
+<option value="Forex">
+Forex
+</option>
+
+<option value="Metals">
+Metals
+</option>
+
+</select>
+
+</div>
+
+
+<div class="field">
+
+<label>Symbol</label>
+
+<select id="symbol"></select>
+
+</div>
+
+
+<div class="field">
+
+<label>Timeframe</label>
+
+<select id="tf"></select>
+
+</div>
+
+</div>
+
+
+<div class="statusline">
+
+<span id="sourceStatus">
 Checking live feed...
+</span>
+
+<span id="feedStatus">
 ● WAITING
+</span>
 
+</div>
+
+</div>
+
+
+<!-- LIVE CHART -->
+
+<div class="card">
+
+<div class="chartbox">
+
+<canvas id="chart"></canvas>
+
+</div>
+
+
+<div class="statusline">
+
+<span id="chartStatus">
 Loading closed candles...
-Price: —
-AI SIGNAL
-0%
-NO TRADE
-ENTRY
-—
-STOP LOSS
-—
-TP1
-—
-TP2
-—
-RSI 14
-—
-ATR 14
-—
+</span>
 
-SMC CONFIRMATIONS
-Liquidity Grab
+<span id="price">
+Price: —
+</span>
+
+</div>
+
+</div>
+
+
+<!-- AI SIGNAL -->
+
+<div class="card">
+
+<div class="signalrow">
+
+<span>
+AI SIGNAL
+</span>
+
+<span
+class="conf"
+id="confidence">
+0%
+</span>
+
+</div>
+
+
+<div
+id="signal"
+class="signal wait">
+NO TRADE
+</div>
+
+
+<div class="grid">
+
+
+<div class="metric">
+
+<span>
+Entry
+</span>
+
+<b id="entry">
 —
-BOS / CHoCH
+</b>
+
+</div>
+
+
+<div class="metric">
+
+<span>
+Stop Loss
+</span>
+
+<b id="sl">
 —
-FVG
+</b>
+
+</div>
+
+
+<div class="metric">
+
+<span>
+TP1
+</span>
+
+<b id="tp1">
 —
-EMA 50 / 200
+</b>
+
+</div>
+
+
+<div class="metric">
+
+<span>
+TP2
+</span>
+
+<b id="tp2">
 —
+</b>
+
+</div>
+
+
+<div class="metric">
+
+<span>
 RSI 14
+</span>
+
+<b id="rsi">
 —
+</b>
+
+</div>
+
+
+<div class="metric">
+
+<span>
+ATR 14
+</span>
+
+<b id="atr">
+—
+</b>
+
+</div>
+
+</div>
+
+
+<div
+id="reason"
+class="small reason">
+</div>
+
+</div>
+
+
+<!-- SMC -->
+
+<div class="card">
+
+<div class="sectiontitle">
+SMC CONFIRMATIONS
+</div>
+
+
+<div class="checks">
+
+
+<div class="check">
+
+<span>
+Liquidity Grab
+</span>
+
+<b
+id="liq"
+class="no">
+—
+</b>
+
+</div>
+
+
+<div class="check">
+
+<span>
+BOS / CHoCH
+</span>
+
+<b
+id="bos"
+class="no">
+—
+</b>
+
+</div>
+
+
+<div class="check">
+
+<span>
+FVG
+</span>
+
+<b
+id="fvg"
+class="no">
+—
+</b>
+
+</div>
+
+
+<div class="check">
+
+<span>
+EMA 50 / 200
+</span>
+
+<b
+id="ema"
+class="no">
+—
+</b>
+
+</div>
+
+
+<div class="check">
+
+<span>
+RSI 14
+</span>
+
+<b
+id="rsiCheck"
+class="no">
+—
+</b>
+
+</div>
+
+
+<div class="check">
+
+<span>
 Momentum
+</span>
+
+<b
+id="mom"
+class="no">
 —
+</b>
+
+</div>
+
+
+</div>
+
+</div>
+
+
+<!-- LEGEND -->
+
+<div class="card">
+
+<div class="sectiontitle">
 LIVE CHART ANNOTATIONS
-⚪ NO TRADE
-🔴 SELL
-🟢 BUY
+</div>
+
+
+<div class="legend">
+
+<span>
+⚪ <b>NO TRADE</b>
+</span>
+
+<span>
+🔴 <b>SELL</b>
+</span>
+
+<span>
+🟢 <b>BUY</b>
+</span>
+
+<span>
 🟪 FVG
+</span>
+
+<span>
 🟨 BOS / CHoCH
+</span>
+
+<span>
 🔵 Liquidity
+</span>
+
+</div>
+
+</div>
+
+
+<!-- REAL FEED -->
+
+<div class="card">
+
+<div class="sectiontitle">
 REAL FEED STATUS
+</div>
+
+<div
+id="realFeed"
+class="small">
+
 Checking Binance live data...
-AUTO TRADE: OFF
+
+</div>
+
+</div>
+
+
+<!-- AUTO TRADE -->
+
+<div class="auto">
+
+AUTO TRADE:
+<b>OFF</b>
+
+<br>
+
 This bot provides signals only and does not place trades.
+
+</div>
+
+</div>
+
+
+<script>
+
+const $ =
+id => document.getElementById(id);
+
+
+const symbolsByMarket = {
+
+Crypto:[
+"BTCUSDT",
+"ETHUSDT",
+"SOLUSDT",
+"BNBUSDT",
+"XRPUSDT"
+],
+
+Forex:[
+"EURUSD",
+"GBPUSD",
+"USDJPY",
+"USDCHF",
+"AUDUSD",
+"USDCAD",
+"NZDUSD"
+],
+
+Metals:[
+"XAUUSD"
+]
+
+};
+
+
+let candles = [];
+
+
+function fmt(v){
+
+if(
+v === null ||
+v === undefined ||
+!Number.isFinite(Number(v))
+){
+
+return "—";
+
+}
+
+const n =
+Number(v);
+
+
+return n >= 100
+
+? n.toLocaleString(
+undefined,
+{
+minimumFractionDigits:2,
+maximumFractionDigits:2
+}
+)
+
+: n.toLocaleString(
+undefined,
+{
+maximumFractionDigits:6
+}
+);
+
+}
+
+
+function setCheck(
+id,
+text,
+ok=false
+){
+
+const el =
+$(id);
+
+el.textContent =
+text || "—";
+
+el.className =
+ok
+? "yes"
+: "no";
+
+}
+
+
+async function getJSON(url){
+
+const r =
+await fetch(
+url,
+{
+cache:"no-store"
+}
+);
+
+if(!r.ok){
+
+throw new Error(
+"HTTP " + r.status
+);
+
+}
+
+return await r.json();
+
+}
+
+
+/* LOAD SOURCES */
+
+async function loadSources(){
+
+try{
+
+const d =
+await getJSON(
+"/api/sources"
+);
+
+const list =
+d.sources || [];
+
+$("source").innerHTML =
+"";
+
+
+list.forEach(s=>{
+
+const o =
+document.createElement(
+"option"
+);
+
+o.value =
+s.name;
+
+o.textContent =
+s.name +
+" — " +
+s.status;
+
+$("source").appendChild(o);
+
+});
+
+
+const binance =
+list.find(
+x => x.name === "Binance"
+);
+
+
+$("sourceStatus").textContent =
+binance
+
+? "Binance: " +
+  binance.status
+
+: "Provider list loaded";
+
+}
+
+catch(e){
+
+$("sourceStatus").textContent =
+"Provider status unavailable";
+
+}
+
+}
+
+
+/* LOAD TIMEFRAMES */
+
+async function loadInstruments(){
+
+const d =
+await getJSON(
+"/api/instruments"
+);
+
+
+$("tf").innerHTML =
+"";
+
+
+(
+d.timeframes ||
+
+[
+"1m",
+"5m",
+"15m",
+"30m",
+"1h",
+"2h",
+"4h"
+]
+
+).forEach(x=>{
+
+const o =
+document.createElement(
+"option"
+);
+
+o.value =
+x;
+
+o.textContent =
+x.toUpperCase();
+
+$("tf").appendChild(o);
+
+});
+
+
+updateSymbols(false);
+
+}
+
+
+/* SYMBOLS */
+
+function updateSymbols(
+load=true
+){
+
+const arr =
+symbolsByMarket[
+$("market").value
+] ||
+symbolsByMarket.Crypto;
+
+
+$("symbol").innerHTML =
+"";
+
+
+arr.forEach(x=>{
+
+const o =
+document.createElement(
+"option"
+);
+
+o.value =
+x;
+
+o.textContent =
+x;
+
+$("symbol").appendChild(o);
+
+});
+
+
+if(load){
+
+loadData();
+
+}
+
+}
+
+
+/* DRAW CHART */
+
+function drawChart(
+data,
+signalData
+){
+
+const canvas =
+$("chart");
+
+const ctx =
+canvas.getContext("2d");
+
+
+const dpr =
+window.devicePixelRatio ||
+1;
+
+const w =
+canvas.clientWidth;
+
+const h =
+canvas.clientHeight;
+
+
+canvas.width =
+w * dpr;
+
+canvas.height =
+h * dpr;
+
+
+ctx.setTransform(
+dpr,
+0,
+0,
+dpr,
+0,
+0
+);
+
+
+ctx.clearRect(
+0,
+0,
+w,
+h
+);
+
+
+if(!data.length){
+
+return;
+
+}
+
+
+const d =
+data.slice(-70);
+
+
+const hi =
+Math.max(
+...d.map(
+x => Number(x.high)
+)
+);
+
+
+const lo =
+Math.min(
+...d.map(
+x => Number(x.low)
+)
+);
+
+
+const range =
+hi - lo || 1;
+
+
+const y =
+v =>
+10 +
+(
+(hi-v) /
+range
+) *
+(h-30);
+
+
+const cw =
+w / d.length;
+
+
+/* GRID */
+
+ctx.strokeStyle =
+"#173d28";
+
+ctx.lineWidth =
+1;
+
+
+for(
+let i=0;
+i<5;
+i++
+){
+
+const yy =
+10 +
+(h-30) *
+i /
+4;
+
+
+ctx.beginPath();
+
+ctx.moveTo(
+0,
+yy
+);
+
+ctx.lineTo(
+w,
+yy
+);
+
+ctx.stroke();
+
+}
+
+
+/* CANDLES */
+
+d.forEach(
+(x,i)=>{
+
+const xx =
+i*cw +
+cw/2;
+
+
+const open =
+Number(x.open);
+
+const close =
+Number(x.close);
+
+const high =
+Number(x.high);
+
+const low =
+Number(x.low);
+
+
+const bullish =
+close >= open;
+
+
+ctx.strokeStyle =
+bullish
+? "#21e56d"
+: "#ff4d4d";
+
+ctx.fillStyle =
+ctx.strokeStyle;
+
+
+ctx.beginPath();
+
+ctx.moveTo(
+xx,
+y(high)
+);
+
+ctx.lineTo(
+xx,
+y(low)
+);
+
+ctx.stroke();
+
+
+const top =
+y(
+Math.max(
+open,
+close
+)
+);
+
+
+const bottom =
+y(
+Math.min(
+open,
+close
+)
+);
+
+
+ctx.fillRect(
+xx-cw*.28,
+top,
+Math.max(
+2,
+cw*.56
+),
+Math.max(
+1,
+bottom-top
+)
+);
+
+});
+
+
+/* SIGNAL LINE */
+
+if(
+signalData &&
+signalData.signal !==
+"NO TRADE" &&
+signalData.entry != null
+){
+
+const yy =
+y(
+Number(
+signalData.entry
+)
+);
+
+
+ctx.setLineDash(
+[7,5]
+);
+
+
+ctx.strokeStyle =
+signalData.signal === "BUY"
+? "#21e56d"
+: "#ff4d4d";
+
+
+ctx.beginPath();
+
+ctx.moveTo(
+0,
+yy
+);
+
+ctx.lineTo(
+w,
+yy
+);
+
+ctx.stroke();
+
+
+ctx.setLineDash([]);
+
+}
+
+}
+
+
+/* LOAD DATA */
+
+async function loadData(){
+
+const symbol =
+$("symbol").value;
+
+const tf =
+$("tf").value;
+
+
+if(
+!symbol ||
+!tf
+){
+
+return;
+
+}
+
+
+try{
+
+const results =
+await Promise.all([
+
+getJSON(
+`/api/candles/${symbol}/${tf}`
+),
+
+getJSON(
+`/api/signal/${symbol}/${tf}`
+)
+
+]);
+
+
+const candleData =
+results[0];
+
+const signalData =
+results[1];
+
+
+candles =
+candleData.candles ||
+[];
+
+
+drawChart(
+candles,
+signalData
+);
+
+
+renderSignal(
+signalData
+);
+
+
+$("chartStatus").textContent =
+`${symbol} • ${tf} • ${candles.length} closed candles`;
+
+}
+
+catch(e){
+
+$("chartStatus").textContent =
+"Waiting for live market data";
+
+}
+
+}
+
+
+/* RENDER SIGNAL */
+
+function renderSignal(s){
+
+const signal =
+s.signal ||
+"NO TRADE";
+
+
+$("signal").textContent =
+signal;
+
+
+$("signal").className =
+"signal " +
+
+(
+signal === "BUY"
+
+? "buy"
+
+: signal === "SELL"
+
+? "sell"
+
+: "wait"
+);
+
+
+$("confidence").textContent =
+(s.confidence ?? 0) +
+"%";
+
+
+$("price").textContent =
+"Price: " +
+fmt(s.price);
+
+
+$("entry").textContent =
+fmt(s.entry);
+
+
+$("sl").textContent =
+fmt(s.sl);
+
+
+$("tp1").textContent =
+fmt(s.tp1);
+
+
+$("tp2").textContent =
+fmt(s.tp2);
+
+
+$("rsi").textContent =
+fmt(s.rsi14);
+
+
+$("atr").textContent =
+fmt(s.atr14);
+
+
+$("reason").textContent =
+s.reason ||
+"No sufficient confirmation";
+
+
+/*
+ IMPORTANT:
+Use server.py SMC values directly.
+This prevents the old UI problem where
+BOS was shown CONFIRMED because another
+confirmation happened.
+*/
+
+
+const smc =
+s.smc || {};
+
+
+setCheck(
+"liq",
+smc.liquidity_grab,
+[
+"BULLISH",
+"BEARISH"
+].includes(
+smc.liquidity_grab
+)
+);
+
+
+setCheck(
+"bos",
+smc.bos_choch,
+[
+"BULLISH",
+"BEARISH"
+].includes(
+smc.bos_choch
+)
+);
+
+
+setCheck(
+"fvg",
+smc.fvg,
+[
+"BULLISH",
+"BEARISH"
+].includes(
+smc.fvg
+)
+);
+
+
+setCheck(
+"ema",
+smc.ema_50_200,
+[
+"BULLISH",
+"BEARISH"
+].includes(
+smc.ema_50_200
+)
+);
+
+
+setCheck(
+"rsiCheck",
+smc.rsi14,
+[
+"BULLISH",
+"BEARISH",
+"BULLISH_OVERBOUGHT",
+"BEARISH_OVERSOLD"
+].includes(
+smc.rsi14
+)
+);
+
+
+setCheck(
+"mom",
+smc.momentum,
+[
+"BULLISH",
+"BEARISH"
+].includes(
+smc.momentum
+)
+);
+
+}
+
+
+/* LIVE STATUS */
+
+async function refreshFeed(){
+
+try{
+
+const d =
+await getJSON(
+"/api/live-status"
+);
+
+
+const b =
+d.Binance || {};
+
+
+const live =
+b.status === "LIVE";
+
+
+$("feedStatus").textContent =
+live
+? "● LIVE"
+: "● WAITING";
+
+
+$("feedStatus").className =
+live
+? "live"
+: "offline";
+
+
+$("realFeed").textContent =
+live
+
+? "Binance is receiving live market data."
+
+: "Binance is waiting for live data.";
+
+}
+
+catch(e){
+
+$("feedStatus").textContent =
+"● WAITING";
+
+
+$("feedStatus").className =
+"offline";
+
+
+$("realFeed").textContent =
+"Live feed status unavailable.";
+
+}
+
+}
+
+
+/* EVENTS */
+
+$("market").onchange =
+() => updateSymbols(true);
+
+
+$("tf").onchange =
+loadData;
+
+
+$("symbol").onchange =
+loadData;
+
+
+window.addEventListener(
+"resize",
+() => drawChart(
+candles,
+null
+)
+);
+
+
+/* START */
+
+(async()=>{
+
+try{
+
+await loadSources();
+
+await loadInstruments();
+
+await refreshFeed();
+
+await loadData();
+
+}
+
+catch(e){
+
+$("realFeed").textContent =
+"Startup error: " +
+e.message;
+
+}
+
+
+/*
+ Refresh every 5 seconds.
+*/
+
+setInterval(
+async()=>{
+
+await loadData();
+
+await refreshFeed();
+
+},
+5000
+);
+
+})();
+
+</script>
+
+</body>
+</html>
