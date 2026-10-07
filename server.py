@@ -3,6 +3,7 @@ import json
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 from collections import deque
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 BASE = Path(__file__).resolve().parent
 INDEX = BASE / "index.html"
 
-app = FastAPI(title="AI Live Signal Bot V18")
+app = FastAPI(title="AI Live Signal Bot V19")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,13 +39,29 @@ SYMBOLS = [
 ]
 
 INTERVALS = ["1m", "5m", "15m", "30m", "1h", "2h", "4h"]
-
 CRYPTO_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
 
+# Keep only CLOSED candles here.
 bars = {(s, tf): deque(maxlen=500) for s in SYMBOLS for tf in INTERVALS}
 latest = {}
 feed_heartbeat = {"Binance": 0.0}
 background_tasks = []
+
+# Binance public market-data fallbacks.
+# data-api.binance.vision is preferred for public market data.
+REST_BASES = [
+    "https://data-api.binance.vision/api/v3/klines",
+    "https://api.binance.com/api/v3/klines",
+    "https://api1.binance.com/api/v3/klines",
+    "https://api2.binance.com/api/v3/klines",
+    "https://api3.binance.com/api/v3/klines",
+    "https://api4.binance.com/api/v3/klines",
+]
+
+USER_AGENT = "Mozilla/5.0 AI-Live-Signal-Bot/19"
+
+# Prevent hammering REST if the hosting IP is temporarily rate-limited.
+rest_backoff_until = 0.0
 
 
 def load_json(name, fallback):
@@ -64,65 +81,168 @@ INSTRUMENTS = load_json("instruments.json", {})
 def ema(values, period):
     if len(values) < period:
         return None
+
     e = sum(values[:period]) / period
     k = 2 / (period + 1)
+
     for x in values[period:]:
         e = x * k + e * (1 - k)
+
     return e
 
 
 def rsi(values, period=14):
     if len(values) < period + 1:
         return None
-    gains = losses = 0.0
-    for a, b in zip(values[-period-1:-1], values[-period:]):
+
+    gains = []
+    losses = []
+
+    for a, b in zip(values[-period - 1:-1], values[-period:]):
         d = b - a
-        if d > 0:
-            gains += d
-        else:
-            losses -= d
-    if losses == 0:
-        return 100.0
-    return 100 - 100 / (1 + gains / losses)
+        gains.append(max(d, 0.0))
+        losses.append(max(-d, 0.0))
+
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+
+    if avg_loss == 0:
+        return 100.0 if avg_gain > 0 else 50.0
+
+    rs = avg_gain / avg_loss
+    return 100.0 - (100.0 / (1.0 + rs))
 
 
 def atr(candles, period=14):
     if len(candles) < period + 1:
         return None
+
     tr = []
+
     for i in range(1, len(candles)):
-        c, p = candles[i], candles[i - 1]
+        c = candles[i]
+        p = candles[i - 1]
+
         tr.append(max(
             c["high"] - c["low"],
             abs(c["high"] - p["close"]),
             abs(c["low"] - p["close"]),
         ))
+
     return sum(tr[-period:]) / period
+
+
+def detect_liquidity(data):
+    if len(data) < 11:
+        return None
+
+    last = data[-1]
+    recent = data[-11:-1]
+
+    prev_low = min(x["low"] for x in recent)
+    prev_high = max(x["high"] for x in recent)
+
+    # Sweep below liquidity then close back above it.
+    if last["low"] < prev_low and last["close"] > prev_low:
+        return "bullish"
+
+    # Sweep above liquidity then close back below it.
+    if last["high"] > prev_high and last["close"] < prev_high:
+        return "bearish"
+
+    return None
+
+
+def detect_bos_choch(data):
+    if len(data) < 5:
+        return None
+
+    last = data[-1]
+    recent = data[-5:-1]
+
+    swing_high = max(x["high"] for x in recent)
+    swing_low = min(x["low"] for x in recent)
+
+    if last["close"] > swing_high:
+        return "bullish"
+
+    if last["close"] < swing_low:
+        return "bearish"
+
+    return None
+
+
+def detect_fvg(data):
+    if len(data) < 3:
+        return None
+
+    c1, c2, c3 = data[-3], data[-2], data[-1]
+
+    # Three-candle imbalance.
+    if c1["high"] < c3["low"]:
+        return "bullish"
+
+    if c1["low"] > c3["high"]:
+        return "bearish"
+
+    return None
+
+
+def detect_momentum(last, prev):
+    if last["close"] > last["open"] and last["close"] > prev["close"]:
+        return "bullish"
+
+    if last["close"] < last["open"] and last["close"] < prev["close"]:
+        return "bearish"
+
+    return None
 
 
 def analyze(symbol, tf):
     data = list(bars.get((symbol, tf), []))
 
-    if len(data) < 30:
+    # Full EMA50/EMA200 analysis needs at least 200 CLOSED candles.
+    if len(data) < 200:
         return {
             "symbol": symbol,
             "timeframe": tf,
             "signal": "NO TRADE",
             "confidence": 0,
-            "reason": "Waiting for enough closed candles",
+            "reason": f"Waiting for 200 closed candles ({len(data)}/200)",
             "candles": len(data),
             "source": "Binance",
             "timestamp": int(time.time()),
             "auto_trade": False,
+            "entry": None,
+            "sl": None,
+            "tp1": None,
+            "tp2": None,
+            "price": data[-1]["close"] if data else None,
+            "ema9": None,
+            "ema21": None,
+            "ema50": None,
+            "ema200": None,
+            "rsi14": None,
+            "atr14": None,
+            "confirmations": [],
+            "smc": {
+                "liquidity_grab": "WAITING",
+                "bos_choch": "WAITING",
+                "fvg": "WAITING",
+                "ema_50_200": "WAITING",
+                "rsi14": "WAITING",
+                "momentum": "WAITING",
+            },
         }
 
     closes = [x["close"] for x in data]
+
     e9 = ema(closes, 9)
     e21 = ema(closes, 21)
     e50 = ema(closes, 50)
     e200 = ema(closes, 200)
-    r = rsi(closes)
-    a = atr(data)
+    r = rsi(closes, 14)
+    a = atr(data, 14)
 
     last = data[-1]
     prev = data[-2]
@@ -131,89 +251,104 @@ def analyze(symbol, tf):
     sell = 0
     confirmations = []
 
-    if e50 is not None and e200 is not None:
-        if e50 > e200:
-            buy += 2
-            confirmations.append("EMA 50/200 bullish")
-        elif e50 < e200:
-            sell += 2
-            confirmations.append("EMA 50/200 bearish")
+    liquidity = detect_liquidity(data)
+    bos = detect_bos_choch(data)
+    fvg = detect_fvg(data)
+    momentum = detect_momentum(last, prev)
 
-    if e9 is not None and e21 is not None:
-        if e9 > e21:
-            buy += 1
-        elif e9 < e21:
-            sell += 1
-
-    if r is not None:
-        if 52 <= r <= 70:
-            buy += 1
-            confirmations.append("RSI bullish")
-        elif 30 <= r <= 48:
-            sell += 1
-            confirmations.append("RSI bearish")
-
-    if last["close"] > last["open"] and last["close"] > prev["high"]:
+    # Trend.
+    if e50 > e200:
         buy += 2
-        confirmations.append("BOS / momentum bullish")
-    elif last["close"] < last["open"] and last["close"] < prev["low"]:
+        ema_state = "BULLISH"
+        confirmations.append("EMA 50 > EMA 200")
+    else:
         sell += 2
-        confirmations.append("BOS / momentum bearish")
+        ema_state = "BEARISH"
+        confirmations.append("EMA 50 < EMA 200")
 
-    recent = data[-10:-1]
-    if recent:
-        prev_low = min(x["low"] for x in recent)
-        prev_high = max(x["high"] for x in recent)
+    # Fast EMA confirmation.
+    if e9 > e21:
+        buy += 1
+    elif e9 < e21:
+        sell += 1
 
-        if last["low"] < prev_low and last["close"] > prev_low:
-            buy += 2
-            confirmations.append("Liquidity grab bullish")
+    # RSI confirmation.
+    if 52 <= r <= 70:
+        buy += 1
+        rsi_state = "BULLISH"
+        confirmations.append("RSI bullish")
+    elif 30 <= r <= 48:
+        sell += 1
+        rsi_state = "BEARISH"
+        confirmations.append("RSI bearish")
+    else:
+        rsi_state = "NEUTRAL"
 
-        if last["high"] > prev_high and last["close"] < prev_high:
-            sell += 2
-            confirmations.append("Liquidity grab bearish")
+    # BOS / CHoCH.
+    if bos == "bullish":
+        buy += 2
+        confirmations.append("BOS/CHoCH bullish")
+    elif bos == "bearish":
+        sell += 2
+        confirmations.append("BOS/CHoCH bearish")
 
-    if len(data) >= 3:
-        c1, c2, c3 = data[-3], data[-2], data[-1]
+    # Liquidity.
+    if liquidity == "bullish":
+        buy += 2
+        confirmations.append("Liquidity grab bullish")
+    elif liquidity == "bearish":
+        sell += 2
+        confirmations.append("Liquidity grab bearish")
 
-        if c1["high"] < c3["low"]:
-            buy += 1
-            confirmations.append("FVG bullish")
+    # FVG.
+    if fvg == "bullish":
+        buy += 1
+        confirmations.append("FVG bullish")
+    elif fvg == "bearish":
+        sell += 1
+        confirmations.append("FVG bearish")
 
-        if c1["low"] > c3["high"]:
-            sell += 1
-            confirmations.append("FVG bearish")
+    # Momentum.
+    if momentum == "bullish":
+        buy += 1
+        confirmations.append("Momentum bullish")
+    elif momentum == "bearish":
+        sell += 1
+        confirmations.append("Momentum bearish")
 
-    if buy >= 5 and buy > sell:
+    # Require stronger agreement before giving a trade.
+    if buy >= 6 and buy > sell:
         signal = "BUY"
         score = buy
-    elif sell >= 5 and sell > buy:
+    elif sell >= 6 and sell > buy:
         signal = "SELL"
         score = sell
     else:
         signal = "NO TRADE"
         score = max(buy, sell)
 
-    confidence = min(95, max(0, 45 + score * 7))
+    # Confidence is a score, not a guarantee of profit.
+    confidence = min(95, max(0, int(45 + score * 6)))
 
     entry = last["close"]
     sl = tp1 = tp2 = None
 
-    if a:
-        if signal == "BUY":
-            sl = entry - 1.5 * a
-            tp1 = entry + 1.5 * a
-            tp2 = entry + 3 * a
-        elif signal == "SELL":
-            sl = entry + 1.5 * a
-            tp1 = entry - 1.5 * a
-            tp2 = entry - 3 * a
+    if a and a > 0 and signal == "BUY":
+        sl = entry - 1.5 * a
+        tp1 = entry + 1.5 * a
+        tp2 = entry + 3.0 * a
+
+    elif a and a > 0 and signal == "SELL":
+        sl = entry + 1.5 * a
+        tp1 = entry - 1.5 * a
+        tp2 = entry - 3.0 * a
 
     return {
         "symbol": symbol,
         "timeframe": tf,
         "signal": signal,
         "confidence": confidence,
+        "reason": " + ".join(confirmations[-5:]) if confirmations else "No sufficient confirmation",
         "entry": entry,
         "sl": sl,
         "tp1": tp1,
@@ -226,6 +361,14 @@ def analyze(symbol, tf):
         "rsi14": r,
         "atr14": a,
         "confirmations": confirmations,
+        "smc": {
+            "liquidity_grab": liquidity.upper() if liquidity else "NONE",
+            "bos_choch": bos.upper() if bos else "NONE",
+            "fvg": fvg.upper() if fvg else "NONE",
+            "ema_50_200": ema_state,
+            "rsi14": rsi_state,
+            "momentum": momentum.upper() if momentum else "NEUTRAL",
+        },
         "auto_trade": False,
         "source": "Binance",
         "candles": len(data),
@@ -233,57 +376,112 @@ def analyze(symbol, tf):
     }
 
 
-def fetch_binance(symbol, interval, limit=300):
-    """
-    Binance Spot REST klines.
-    We use api.binance.com instead of the old data-api host.
-    """
-    query = urllib.parse.urlencode({
-        "symbol": symbol,
-        "interval": interval,
-        "limit": limit,
-    })
-
-    url = f"https://api.binance.com/api/v3/klines?{query}"
-
+def _request_json(url, timeout=15):
     req = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "AI-Live-Signal-Bot/18",
+            "User-Agent": USER_AGENT,
             "Accept": "application/json",
+            "Cache-Control": "no-cache",
         },
     )
 
-    last_error = None
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        status = getattr(response, "status", 200)
+        body = response.read().decode("utf-8")
 
-    for attempt in range(3):
-        try:
-            with urllib.request.urlopen(req, timeout=20) as response:
-                raw = json.loads(response.read().decode("utf-8"))
+        if status != 200:
+            raise RuntimeError(f"HTTP {status}: {body[:300]}")
 
-            if not isinstance(raw, list):
-                raise RuntimeError(f"Unexpected Binance response: {raw}")
+        return json.loads(body)
 
-            result = []
 
-            for x in raw:
-                result.append({
-                    "time": int(x[0]),
-                    "open": float(x[1]),
-                    "high": float(x[2]),
-                    "low": float(x[3]),
-                    "close": float(x[4]),
-                    "volume": float(x[5]),
-                })
+def fetch_binance(symbol, interval, limit=300):
+    """
+    Fetch public Binance Spot klines.
 
-            return result
+    Important:
+    Render/shared hosting IPs can receive HTTP 418 from one Binance REST
+    endpoint. We therefore try Binance's public market-data endpoint first,
+    then several API hosts. WebSocket remains the live feed.
+    """
+    global rest_backoff_until
 
-        except Exception as exc:
-            last_error = exc
-            time.sleep(1 + attempt)
+    if time.time() < rest_backoff_until:
+        raise RuntimeError(
+            f"REST temporarily backed off for "
+            f"{int(rest_backoff_until - time.time())}s"
+        )
+
+    query = urllib.parse.urlencode({
+        "symbol": symbol,
+        "interval": interval,
+        "limit": min(int(limit), 1000),
+    })
+
+    errors = []
+
+    for base in REST_BASES:
+        url = f"{base}?{query}"
+
+        for attempt in range(2):
+            try:
+                raw = _request_json(url, timeout=15)
+
+                if not isinstance(raw, list):
+                    raise RuntimeError(
+                        f"Unexpected response type: {type(raw).__name__}"
+                    )
+
+                result = []
+
+                for x in raw:
+                    if not isinstance(x, list) or len(x) < 6:
+                        continue
+
+                    result.append({
+                        "time": int(x[0]),
+                        "open": float(x[1]),
+                        "high": float(x[2]),
+                        "low": float(x[3]),
+                        "close": float(x[4]),
+                        "volume": float(x[5]),
+                    })
+
+                if result:
+                    rest_backoff_until = 0.0
+                    return result
+
+                raise RuntimeError("Empty kline response")
+
+            except urllib.error.HTTPError as exc:
+                body = ""
+                try:
+                    body = exc.read().decode("utf-8")[:300]
+                except Exception:
+                    pass
+
+                msg = f"{base}: HTTP {exc.code} {body}"
+                errors.append(msg)
+
+                # 418/429 normally means the current REST route/IP is
+                # rate-limited. Do not hammer the same endpoint.
+                if exc.code in (418, 429):
+                    break
+
+            except Exception as exc:
+                errors.append(f"{base}: {exc}")
+
+            if attempt == 0:
+                awaitable_sleep = 0.6
+                time.sleep(awaitable_sleep)
+
+    # Back off for 30 seconds so a shared Render IP is not hammered.
+    rest_backoff_until = time.time() + 30
 
     raise RuntimeError(
-        f"Binance REST failed for {symbol} {interval}: {last_error}"
+        "All Binance REST endpoints failed. "
+        + " | ".join(errors[-6:])
     )
 
 
@@ -296,8 +494,7 @@ async def load_one_history(symbol, tf):
             300,
         )
 
-        # The last REST kline can still be open.
-        # The signal engine uses CLOSED candles only.
+        # The last REST kline may still be open.
         closed = data[:-1] if len(data) > 1 else []
 
         q = bars[(symbol, tf)]
@@ -321,10 +518,18 @@ async def load_one_history(symbol, tf):
 
 async def load_history():
     """
-    Load BTCUSDT 1m first so the mobile UI becomes useful immediately.
-    Then load the remaining crypto/timeframe combinations.
+    Load BTCUSDT 1m first, then the remaining crypto/timeframe combinations.
+
+    If REST is temporarily blocked, the service still starts and WebSocket
+    continues. We do not crash the Render service because history failed.
     """
-    await load_one_history("BTCUSDT", "1m")
+    first = await load_one_history("BTCUSDT", "1m")
+
+    if first == 0:
+        print(
+            "WARNING: BTCUSDT 1m history could not be loaded. "
+            "WebSocket will continue collecting closed candles."
+        )
 
     jobs = []
 
@@ -332,12 +537,17 @@ async def load_history():
         for tf in INTERVALS:
             if symbol == "BTCUSDT" and tf == "1m":
                 continue
-            jobs.append(load_one_history(symbol, tf))
+            jobs.append((symbol, tf))
 
-    # Small batches reduce the chance of hitting REST limits.
-    for i in range(0, len(jobs), 7):
-        await asyncio.gather(*jobs[i:i + 7])
-        await asyncio.sleep(0.15)
+    # Small batches reduce rate-limit pressure.
+    for i in range(0, len(jobs), 4):
+        batch = [
+            load_one_history(symbol, tf)
+            for symbol, tf in jobs[i:i + 4]
+        ]
+
+        await asyncio.gather(*batch)
+        await asyncio.sleep(0.5)
 
 
 async def binance_stream():
@@ -366,14 +576,16 @@ async def binance_stream():
                 feed_heartbeat["Binance"] = time.time()
 
                 async for raw in ws:
-                    msg = json.loads(raw)
+                    try:
+                        msg = json.loads(raw)
+                    except Exception:
+                        continue
 
                     k = msg.get("data", {}).get("k")
 
                     if not k:
                         continue
 
-                    # The connection itself is alive.
                     feed_heartbeat["Binance"] = time.time()
 
                     symbol = k.get("s")
@@ -382,8 +594,11 @@ async def binance_stream():
                     if not symbol or not tf:
                         continue
 
-                    # Ignore unsupported combinations.
                     if (symbol, tf) not in bars:
+                        continue
+
+                    # ONLY CLOSED CANDLES.
+                    if not k.get("x"):
                         continue
 
                     candle = {
@@ -394,10 +609,6 @@ async def binance_stream():
                         "close": float(k["c"]),
                         "volume": float(k["v"]),
                     }
-
-                    # We display/analyze CLOSED candles only.
-                    if not k.get("x"):
-                        continue
 
                     q = bars[(symbol, tf)]
 
@@ -416,11 +627,14 @@ async def binance_stream():
 
 @app.on_event("startup")
 async def startup():
-    # History first, then stream.
-    await load_history()
-
+    # Start the WebSocket immediately so Render is live even if REST fails.
     background_tasks.append(
         asyncio.create_task(binance_stream())
+    )
+
+    # History runs in the background instead of blocking application startup.
+    background_tasks.append(
+        asyncio.create_task(load_history())
     )
 
 
@@ -428,6 +642,12 @@ async def startup():
 async def shutdown():
     for task in background_tasks:
         task.cancel()
+
+    if background_tasks:
+        await asyncio.gather(
+            *background_tasks,
+            return_exceptions=True,
+        )
 
 
 @app.get("/")
@@ -454,13 +674,17 @@ async def health():
 
     return {
         "status": "ok",
-        "service": "AI Live Signal Bot V18",
+        "service": "AI Live Signal Bot V19",
         "binance": (
             "LIVE"
             if age is not None and age < 30
             else "WAITING"
         ),
         "seconds_since_feed": age,
+        "rest_backoff_seconds": max(
+            0,
+            int(rest_backoff_until - time.time()),
+        ),
         "auto_trade": False,
         "btc_1m_closed_candles": len(
             bars[("BTCUSDT", "1m")]
@@ -477,10 +701,6 @@ async def live_status():
         else None
     )
 
-    btc_count = len(
-        bars[("BTCUSDT", "1m")]
-    )
-
     return {
         "Binance": {
             "status": (
@@ -489,7 +709,9 @@ async def live_status():
                 else "WAITING"
             ),
             "seconds_since_data": age,
-            "closed_candles": btc_count,
+            "closed_candles": len(
+                bars[("BTCUSDT", "1m")]
+            ),
         }
     }
 
@@ -507,10 +729,7 @@ async def sources():
         ]
 
     elif isinstance(PROVIDERS, dict):
-        names = (
-            list(PROVIDERS.keys())
-            or DEFAULT_SOURCES
-        )
+        names = list(PROVIDERS.keys()) or DEFAULT_SOURCES
 
     return {
         "sources": [
@@ -538,21 +757,12 @@ async def instruments():
 
 
 @app.get("/api/candles/{symbol}/{timeframe}")
-async def candles(
-    symbol: str,
-    timeframe: str,
-):
-    key = (
-        symbol.upper(),
-        timeframe,
-    )
+async def candles(symbol: str, timeframe: str):
+    key = (symbol.upper(), timeframe)
 
     if key not in bars:
         return JSONResponse(
-            {
-                "error":
-                "Unsupported symbol/timeframe"
-            },
+            {"error": "Unsupported symbol/timeframe"},
             status_code=400,
         )
 
@@ -564,62 +774,35 @@ async def candles(
 
 
 @app.get("/api/signal/{symbol}/{timeframe}")
-async def signal(
-    symbol: str,
-    timeframe: str,
-):
-    key = (
-        symbol.upper(),
-        timeframe,
-    )
+async def signal(symbol: str, timeframe: str):
+    key = (symbol.upper(), timeframe)
 
     if key not in bars:
         return JSONResponse(
-            {
-                "error":
-                "Unsupported symbol/timeframe"
-            },
+            {"error": "Unsupported symbol/timeframe"},
             status_code=400,
         )
 
-    return latest.get(
-        key,
-        analyze(*key),
-    )
+    return latest.get(key, analyze(*key))
 
 
 @app.get("/api/refresh/{symbol}/{timeframe}")
-async def refresh(
-    symbol: str,
-    timeframe: str,
-):
-    key = (
-        symbol.upper(),
-        timeframe,
-    )
+async def refresh(symbol: str, timeframe: str):
+    key = (symbol.upper(), timeframe)
 
     if key not in bars:
         return JSONResponse(
-            {
-                "error":
-                "Unsupported symbol/timeframe"
-            },
+            {"error": "Unsupported symbol/timeframe"},
             status_code=400,
         )
 
-    count = await load_one_history(
-        key[0],
-        key[1],
-    )
+    count = await load_one_history(key[0], key[1])
 
     return {
         "symbol": key[0],
         "timeframe": key[1],
         "closed_candles": count,
-        "signal": latest.get(
-            key,
-            analyze(*key),
-        ),
+        "signal": latest.get(key, analyze(*key)),
     }
 
 
@@ -635,11 +818,5 @@ async def legacy_sources():
 
 
 @app.get("/signal/{symbol}/{interval}")
-async def legacy_signal(
-    symbol: str,
-    interval: str,
-):
-    return await signal(
-        symbol,
-        interval,
-    )
+async def legacy_signal(symbol: str, interval: str):
+    return await signal(symbol, interval)
