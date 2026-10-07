@@ -3,690 +3,271 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#06100b">
-<title>AI Live Signal Bot V21</title>
+
+<title>AI Live Signal Bot V25</title>
 
 <style>
-:root{
-  --bg:#06100b;
-  --panel:#09150f;
-  --panel2:#0d1d14;
-  --line:#1e5737;
-  --text:#eef8f1;
-  --muted:#91a99b;
-  --green:#21e56d;
-  --red:#ff4d4d;
-  --gold:#f4ca59;
-  --blue:#55a7ff;
+*{
+    box-sizing:border-box
 }
-
-*{box-sizing:border-box}
 
 body{
-  margin:0;
-  background:var(--bg);
-  color:var(--text);
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    margin:0;
+    background:#07110d;
+    color:#eafff2;
+    font-family:Arial,sans-serif
 }
 
-.app{
-  max-width:980px;
-  margin:auto;
-  padding:16px 14px 40px;
-}
-
-header{
-  text-align:center;
-  padding:10px 0 18px;
+.wrap{
+    max-width:1100px;
+    margin:auto;
+    padding:14px
 }
 
 h1{
-  font-size:30px;
-  margin:0 0 8px;
-  font-weight:800;
+    margin:5px 0;
+    font-size:24px
 }
 
-header p{
-  margin:0;
-  color:var(--muted);
-  font-size:14px;
-  line-height:1.5;
-}
-
-.badge{
-  display:inline-block;
-  margin-top:10px;
-  padding:7px 12px;
-  border-radius:999px;
-  background:#102319;
-  border:1px solid #245c3c;
-  color:var(--green);
-  font-weight:700;
-  font-size:12px;
+.sub{
+    color:#8ca99a;
+    font-size:13px;
+    margin-bottom:12px
 }
 
 .card{
-  background:var(--panel);
-  border:1px solid var(--line);
-  border-radius:18px;
-  padding:16px;
-  margin:12px 0;
-  box-shadow:0 8px 28px #0005;
+    background:#0d1b15;
+    border:1px solid #1d3a2b;
+    border-radius:14px;
+    padding:14px;
+    margin:10px 0
 }
 
-.controls{
-  display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:10px;
+.row{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap
 }
 
-.field label{
-  display:block;
-  color:var(--muted);
-  font-size:11px;
-  margin-bottom:6px;
-  text-transform:uppercase;
+select,
+button{
+    background:#12251b;
+    color:#eafff2;
+    border:1px solid #2c5942;
+    border-radius:9px;
+    padding:10px
 }
 
-select{
-  width:100%;
-  border:1px solid #255d3d;
-  background:var(--panel2);
-  color:var(--text);
-  border-radius:12px;
-  padding:13px;
-  font-size:15px;
+button{
+    cursor:pointer
 }
 
-.statusline{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-top:12px;
-  color:var(--muted);
-  font-size:13px;
+.status{
+    font-weight:bold
 }
 
 .live{
-  color:var(--green);
+    color:#55e68b
 }
 
-.offline{
-  color:#ff5d5d;
+.bad{
+    color:#ff7070
 }
 
-.chartbox{
-  height:330px;
-  background:#040a07;
-  border-radius:14px;
-  border:1px solid #143824;
-  overflow:hidden;
-}
-
-canvas{
-  width:100%;
-  height:100%;
-  display:block;
-}
-
-.signalrow{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
+#chart{
+    width:100%;
+    height:420px;
+    background:#07100c;
+    border-radius:10px;
+    display:block
 }
 
 .signal{
-  font-size:34px;
-  font-weight:900;
-  margin:8px 0;
+    font-size:30px;
+    font-weight:800
 }
 
 .buy{
-  color:var(--green);
+    color:#43e58b
 }
 
 .sell{
-  color:var(--red);
+    color:#ff5f6d
 }
 
-.wait{
-  color:var(--gold);
-}
-
-.conf{
-  font-size:26px;
-  font-weight:800;
+.none{
+    color:#f0c674
 }
 
 .grid{
-  display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:9px;
-  margin-top:12px;
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:8px
 }
 
 .metric{
-  background:var(--panel2);
-  border-radius:12px;
-  padding:12px;
+    background:#0a1510;
+    border-radius:9px;
+    padding:10px
 }
 
-.metric span{
-  display:block;
-  color:var(--muted);
-  font-size:11px;
-  text-transform:uppercase;
+.metric small{
+    display:block;
+    color:#789687;
+    font-size:11px
 }
 
 .metric b{
-  display:block;
-  margin-top:5px;
-  font-size:17px;
-}
-
-.sectiontitle{
-  font-size:18px;
-  font-weight:800;
-  margin-bottom:12px;
-}
-
-.checks{
-  display:grid;
-  grid-template-columns:repeat(2,1fr);
-  gap:8px;
+    font-size:16px
 }
 
 .check{
-  display:flex;
-  justify-content:space-between;
-  padding:10px 12px;
-  background:var(--panel2);
-  border-radius:10px;
-  font-size:13px;
+    padding:7px;
+    border-bottom:1px solid #173225;
+    color:#a9c0b2
 }
 
-.yes{
-  color:var(--green);
-}
+@media(max-width:700px){
 
-.no{
-  color:var(--muted);
-}
+    .grid{
+        grid-template-columns:repeat(2,1fr)
+    }
 
-.legend{
-  display:flex;
-  flex-wrap:wrap;
-  gap:12px;
-  color:var(--muted);
-  font-size:13px;
-}
-
-.legend b{
-  color:var(--text);
-}
-
-.auto{
-  text-align:center;
-  padding:13px;
-  background:#101d15;
-  border:1px solid #294d38;
-  border-radius:12px;
-  color:var(--muted);
-}
-
-.auto b{
-  color:var(--green);
-}
-
-.small{
-  color:var(--muted);
-  font-size:12px;
-  line-height:1.5;
-}
-
-.reason{
-  margin-top:12px;
-  padding:10px;
-  border-radius:10px;
-  background:var(--panel2);
-}
-
-@media(max-width:650px){
-
-  .controls{
-    grid-template-columns:1fr 1fr;
-  }
-
-  .grid{
-    grid-template-columns:1fr 1fr;
-  }
-
-  .checks{
-    grid-template-columns:1fr;
-  }
-
-  .chartbox{
-    height:280px;
-  }
-
-  h1{
-    font-size:26px;
-  }
+    #chart{
+        height:330px
+    }
 }
 </style>
 </head>
 
 <body>
 
-<div class="app">
+<div class="wrap">
 
-<header>
+<h1>🤖 AI Live Signal Bot V25</h1>
 
-<h1>🤖 AI Live Signal Bot V21</h1>
-
-<p>
-Live Crypto + Forex/Broker Sources • Unified Workflow • Live Chart • SMC Analysis
-</p>
-
-<div class="badge">
-SIGNAL ONLY • AUTO TRADE: OFF
+<div class="sub">
+SIGNAL ONLY • AUTO TRADE: OFF • Browser → Binance public market data
 </div>
 
-</header>
-
-
-<!-- DATA CONTROLS -->
 
 <div class="card">
 
-<div class="controls">
-
-<div class="field">
-
-<label>Data Source</label>
-
-<select id="source"></select>
-
-</div>
-
-
-<div class="field">
-
-<label>Market</label>
-
-<select id="market">
-
-<option value="Crypto">
-Crypto
-</option>
-
-<option value="Forex">
-Forex
-</option>
-
-<option value="Metals">
-Metals
-</option>
-
-</select>
-
-</div>
-
-
-<div class="field">
-
-<label>Symbol</label>
+<div class="row">
 
 <select id="symbol"></select>
 
-</div>
+<select id="tf">
+<option>1m</option>
+<option>5m</option>
+<option>15m</option>
+<option>30m</option>
+<option>1h</option>
+<option>2h</option>
+<option>4h</option>
+</select>
 
-
-<div class="field">
-
-<label>Timeframe</label>
-
-<select id="tf"></select>
-
-</div>
-
-</div>
-
-
-<div class="statusline">
-
-<span id="sourceStatus">
-Checking live feed...
-</span>
-
-<span id="feedStatus">
-● WAITING
-</span>
+<button onclick="reload()">
+🔄 Reload
+</button>
 
 </div>
 
+<p>
+Source:
+<span class="live">BINANCE LIVE</span>
+|
+Feed:
+<span id="feed" class="bad">CONNECTING...</span>
+</p>
+
 </div>
 
-
-<!-- LIVE CHART -->
 
 <div class="card">
-
-<div class="chartbox">
 
 <canvas id="chart"></canvas>
 
 </div>
 
 
-<div class="statusline">
-
-<span id="chartStatus">
-Loading closed candles...
-</span>
-
-<span id="price">
-Price: —
-</span>
-
-</div>
-
-</div>
-
-
-<!-- AI SIGNAL -->
-
 <div class="card">
 
-<div class="signalrow">
-
-<span>
-AI SIGNAL
-</span>
-
-<span
-class="conf"
-id="confidence">
-0%
-</span>
-
+<div id="signal" class="signal none">
+NO TRADE
 </div>
 
-
-<div
-id="signal"
-class="signal wait">
-NO TRADE
+<div id="reason" class="sub">
+Waiting for closed candles...
 </div>
 
 
 <div class="grid">
 
+<div class="metric">
+<small>Confidence</small>
+<b id="confidence">0%</b>
+</div>
 
 <div class="metric">
-
-<span>
-Entry
-</span>
-
-<b id="entry">
-—
-</b>
-
+<small>Trend</small>
+<b id="trend">—</b>
 </div>
-
 
 <div class="metric">
-
-<span>
-Stop Loss
-</span>
-
-<b id="sl">
-—
-</b>
-
+<small>Price</small>
+<b id="price">—</b>
 </div>
-
 
 <div class="metric">
-
-<span>
-TP1
-</span>
-
-<b id="tp1">
-—
-</b>
-
+<small>RSI 14</small>
+<b id="rsi">—</b>
 </div>
-
 
 <div class="metric">
-
-<span>
-TP2
-</span>
-
-<b id="tp2">
-—
-</b>
-
+<small>ATR 14</small>
+<b id="atr">—</b>
 </div>
-
 
 <div class="metric">
-
-<span>
-RSI 14
-</span>
-
-<b id="rsi">
-—
-</b>
-
+<small>Entry</small>
+<b id="entry">—</b>
 </div>
-
 
 <div class="metric">
+<small>Stop Loss</small>
+<b id="sl">—</b>
+</div>
 
-<span>
-ATR 14
-</span>
-
-<b id="atr">
-—
-</b>
-
+<div class="metric">
+<small>TP1 / TP2</small>
+<b id="tp">—</b>
 </div>
 
 </div>
 
-
-<div
-id="reason"
-class="small reason">
 </div>
 
-</div>
-
-
-<!-- SMC -->
 
 <div class="card">
 
-<div class="sectiontitle">
-SMC CONFIRMATIONS
-</div>
+<h3>SMC Confirmations</h3>
 
-
-<div class="checks">
-
-
-<div class="check">
-
-<span>
-Liquidity Grab
-</span>
-
-<b
-id="liq"
-class="no">
-—
-</b>
+<div id="checks"></div>
 
 </div>
 
-
-<div class="check">
-
-<span>
-BOS / CHoCH
-</span>
-
-<b
-id="bos"
-class="no">
-—
-</b>
-
-</div>
-
-
-<div class="check">
-
-<span>
-FVG
-</span>
-
-<b
-id="fvg"
-class="no">
-—
-</b>
-
-</div>
-
-
-<div class="check">
-
-<span>
-EMA 50 / 200
-</span>
-
-<b
-id="ema"
-class="no">
-—
-</b>
-
-</div>
-
-
-<div class="check">
-
-<span>
-RSI 14
-</span>
-
-<b
-id="rsiCheck"
-class="no">
-—
-</b>
-
-</div>
-
-
-<div class="check">
-
-<span>
-Momentum
-</span>
-
-<b
-id="mom"
-class="no">
-—
-</b>
-
-</div>
-
-
-</div>
-
-</div>
-
-
-<!-- LEGEND -->
 
 <div class="card">
 
-<div class="sectiontitle">
-LIVE CHART ANNOTATIONS
-</div>
+<span id="count">0</span>
+closed candles
 
+•
 
-<div class="legend">
+Last update:
 
-<span>
-⚪ <b>NO TRADE</b>
-</span>
-
-<span>
-🔴 <b>SELL</b>
-</span>
-
-<span>
-🟢 <b>BUY</b>
-</span>
-
-<span>
-🟪 FVG
-</span>
-
-<span>
-🟨 BOS / CHoCH
-</span>
-
-<span>
-🔵 Liquidity
-</span>
-
-</div>
-
-</div>
-
-
-<!-- REAL FEED -->
-
-<div class="card">
-
-<div class="sectiontitle">
-REAL FEED STATUS
-</div>
-
-<div
-id="realFeed"
-class="small">
-
-Checking Binance live data...
-
-</div>
-
-</div>
-
-
-<!-- AUTO TRADE -->
-
-<div class="auto">
-
-AUTO TRADE:
-<b>OFF</b>
-
-<br>
-
-This bot provides signals only and does not place trades.
+<span id="updated">—</span>
 
 </div>
 
@@ -695,901 +276,1439 @@ This bot provides signals only and does not place trades.
 
 <script>
 
-const $ =
-id => document.getElementById(id);
+const API =
+"https://data-api.binance.vision/api/v3/klines";
+
+const WS =
+"wss://data-stream.binance.vision/stream";
 
 
-const symbolsByMarket = {
+const symbols = [
 
-Crypto:[
 "BTCUSDT",
 "ETHUSDT",
-"SOLUSDT",
 "BNBUSDT",
-"XRPUSDT"
-],
+"SOLUSDT",
+"XRPUSDT",
+"ADAUSDT",
+"DOGEUSDT",
+"AVAXUSDT",
+"LINKUSDT",
+"LTCUSDT"
 
-Forex:[
-"EURUSD",
-"GBPUSD",
-"USDJPY",
-"USDCHF",
-"AUDUSD",
-"USDCAD",
-"NZDUSD"
-],
+];
 
-Metals:[
-"XAUUSD"
-]
+
+const tfMs = {
+
+"1m":60000,
+
+"5m":300000,
+
+"15m":900000,
+
+"30m":1800000,
+
+"1h":3600000,
+
+"2h":7200000,
+
+"4h":14400000
 
 };
 
 
 let candles = [];
 
+let socket = null;
 
-function fmt(v){
+let currentSymbol = "BTCUSDT";
 
-if(
-v === null ||
-v === undefined ||
-!Number.isFinite(Number(v))
-){
-
-return "—";
-
-}
-
-const n =
-Number(v);
+let currentTF = "1m";
 
 
-return n >= 100
-
-? n.toLocaleString(
-undefined,
-{
-minimumFractionDigits:2,
-maximumFractionDigits:2
-}
-)
-
-: n.toLocaleString(
-undefined,
-{
-maximumFractionDigits:6
-}
-);
-
-}
+const $ = id =>
+document.getElementById(id);
 
 
-function setCheck(
-id,
-text,
-ok=false
-){
+symbols.forEach(symbol => {
 
-const el =
-$(id);
+    let option =
+    document.createElement("option");
 
-el.textContent =
-text || "—";
+    option.value = symbol;
 
-el.className =
-ok
-? "yes"
-: "no";
+    option.textContent = symbol;
 
-}
-
-
-async function getJSON(url){
-
-const r =
-await fetch(
-url,
-{
-cache:"no-store"
-}
-);
-
-if(!r.ok){
-
-throw new Error(
-"HTTP " + r.status
-);
-
-}
-
-return await r.json();
-
-}
-
-
-/* LOAD SOURCES */
-
-async function loadSources(){
-
-try{
-
-const d =
-await getJSON(
-"/api/sources"
-);
-
-const list =
-d.sources || [];
-
-$("source").innerHTML =
-"";
-
-
-list.forEach(s=>{
-
-const o =
-document.createElement(
-"option"
-);
-
-o.value =
-s.name;
-
-o.textContent =
-s.name +
-" — " +
-s.status;
-
-$("source").appendChild(o);
+    $("symbol").appendChild(option);
 
 });
 
 
-const binance =
-list.find(
-x => x.name === "Binance"
-);
+function fmt(value){
 
+    if(value == null)
+        return "—";
 
-$("sourceStatus").textContent =
-binance
-
-? "Binance: " +
-  binance.status
-
-: "Provider list loaded";
-
-}
-
-catch(e){
-
-$("sourceStatus").textContent =
-"Provider status unavailable";
-
-}
-
+    return Number(value)
+    .toLocaleString(
+        undefined,
+        {
+            maximumFractionDigits:2
+        }
+    );
 }
 
 
-/* LOAD TIMEFRAMES */
+function ema(values, period){
 
-async function loadInstruments(){
+    if(values.length < period)
+        return null;
 
-const d =
-await getJSON(
-"/api/instruments"
-);
+    let e =
+    values
+    .slice(0,period)
+    .reduce((a,b)=>a+b,0)
+    / period;
 
+    let k =
+    2/(period+1);
 
-$("tf").innerHTML =
-"";
+    for(
+        let i=period;
+        i<values.length;
+        i++
+    ){
 
+        e =
+        values[i]*k
+        +
+        e*(1-k);
 
-(
-d.timeframes ||
+    }
 
-[
-"1m",
-"5m",
-"15m",
-"30m",
-"1h",
-"2h",
-"4h"
-]
-
-).forEach(x=>{
-
-const o =
-document.createElement(
-"option"
-);
-
-o.value =
-x;
-
-o.textContent =
-x.toUpperCase();
-
-$("tf").appendChild(o);
-
-});
-
-
-updateSymbols(false);
-
+    return e;
 }
 
 
-/* SYMBOLS */
+function rsi(values, period=14){
 
-function updateSymbols(
-load=true
-){
+    if(values.length <= period)
+        return null;
 
-const arr =
-symbolsByMarket[
-$("market").value
-] ||
-symbolsByMarket.Crypto;
+    let gains = 0;
+    let losses = 0;
 
+    for(
+        let i=1;
+        i<=period;
+        i++
+    ){
 
-$("symbol").innerHTML =
-"";
+        let d =
+        values[i]-values[i-1];
 
+        gains += Math.max(d,0);
 
-arr.forEach(x=>{
+        losses += Math.max(-d,0);
 
-const o =
-document.createElement(
-"option"
-);
+    }
 
-o.value =
-x;
+    let avgGain =
+    gains/period;
 
-o.textContent =
-x;
-
-$("symbol").appendChild(o);
-
-});
+    let avgLoss =
+    losses/period;
 
 
-if(load){
+    for(
+        let i=period+1;
+        i<values.length;
+        i++
+    ){
 
-loadData();
+        let d =
+        values[i]-values[i-1];
 
-}
+        let gain =
+        Math.max(d,0);
+
+        let loss =
+        Math.max(-d,0);
+
+        avgGain =
+        (
+            avgGain*(period-1)
+            +gain
+        )/period;
+
+        avgLoss =
+        (
+            avgLoss*(period-1)
+            +loss
+        )/period;
+
+    }
+
+
+    if(avgLoss===0)
+        return 100;
+
+    return 100 -
+    100/(1+avgGain/avgLoss);
 
 }
 
 
-/* DRAW CHART */
+function atr(candles,period=14){
 
-function drawChart(
-data,
-signalData
-){
+    if(candles.length < period+1)
+        return null;
 
-const canvas =
-$("chart");
-
-const ctx =
-canvas.getContext("2d");
+    let trs=[];
 
 
-const dpr =
-window.devicePixelRatio ||
-1;
+    for(
+        let i=1;
+        i<candles.length;
+        i++
+    ){
 
-const w =
-canvas.clientWidth;
+        let x=candles[i];
 
-const h =
-canvas.clientHeight;
+        let q=candles[i-1];
 
+        trs.push(
 
-canvas.width =
-w * dpr;
+            Math.max(
 
-canvas.height =
-h * dpr;
+                x.h-x.l,
 
+                Math.abs(
+                    x.h-q.c
+                ),
 
-ctx.setTransform(
-dpr,
-0,
-0,
-dpr,
-0,
-0
-);
+                Math.abs(
+                    x.l-q.c
+                )
 
+            )
 
-ctx.clearRect(
-0,
-0,
-w,
-h
-);
+        );
+
+    }
 
 
-if(!data.length){
+    let v =
+    trs
+    .slice(0,period)
+    .reduce(
+        (a,b)=>a+b,
+        0
+    )/period;
 
-return;
+
+    for(
+        let i=period;
+        i<trs.length;
+        i++
+    ){
+
+        v =
+        (
+            v*(period-1)
+            +trs[i]
+        )/period;
+
+    }
+
+    return v;
+}
+
+
+function structure(c){
+
+    if(c.length<20){
+
+        return {
+            bos:false,
+            dir:"NEUTRAL"
+        };
+
+    }
+
+
+    let previous =
+    c.slice(-16,-6);
+
+    let close =
+    c.at(-1).c;
+
+
+    let hi =
+    Math.max(
+        ...previous.map(
+            x=>x.h
+        )
+    );
+
+
+    let lo =
+    Math.min(
+        ...previous.map(
+            x=>x.l
+        )
+    );
+
+
+    if(close>hi){
+
+        return {
+            bos:true,
+            dir:"BULLISH"
+        };
+
+    }
+
+
+    if(close<lo){
+
+        return {
+            bos:true,
+            dir:"BEARISH"
+        };
+
+    }
+
+
+    return {
+        bos:false,
+        dir:"NEUTRAL"
+    };
 
 }
 
 
-const d =
-data.slice(-70);
+function liquidity(c){
+
+    if(c.length<20)
+        return [false,"NONE"];
 
 
-const hi =
-Math.max(
-...d.map(
-x => Number(x.high)
-)
-);
+    let x =
+    c.slice(-12,-2);
 
 
-const lo =
-Math.min(
-...d.map(
-x => Number(x.low)
-)
-);
+    let hi =
+    Math.max(
+        ...x.map(
+            z=>z.h
+        )
+    );
 
 
-const range =
-hi - lo || 1;
+    let lo =
+    Math.min(
+        ...x.map(
+            z=>z.l
+        )
+    );
 
 
-const y =
-v =>
-10 +
-(
-(hi-v) /
-range
-) *
-(h-30);
+    let q =
+    c.at(-1);
 
 
-const cw =
-w / d.length;
+    let tol =
+    Math.max(
+        (hi-lo)*.03,
+        q.c*.00015
+    );
 
 
-/* GRID */
+    if(
+        q.l < lo-tol
+        &&
+        q.c > lo
+    ){
 
-ctx.strokeStyle =
-"#173d28";
+        return [
+            true,
+            "SELL-SIDE LIQUIDITY GRAB"
+        ];
 
-ctx.lineWidth =
-1;
-
-
-for(
-let i=0;
-i<5;
-i++
-){
-
-const yy =
-10 +
-(h-30) *
-i /
-4;
+    }
 
 
-ctx.beginPath();
+    if(
+        q.h > hi+tol
+        &&
+        q.c < hi
+    ){
 
-ctx.moveTo(
-0,
-yy
-);
+        return [
+            true,
+            "BUY-SIDE LIQUIDITY GRAB"
+        ];
 
-ctx.lineTo(
-w,
-yy
-);
+    }
 
-ctx.stroke();
+
+    return [
+        false,
+        "NONE"
+    ];
 
 }
 
 
-/* CANDLES */
+function fvg(c){
 
-d.forEach(
-(x,i)=>{
-
-const xx =
-i*cw +
-cw/2;
+    if(c.length<5)
+        return [false,"NONE"];
 
 
-const open =
-Number(x.open);
+    let a=c.at(-3);
 
-const close =
-Number(x.close);
-
-const high =
-Number(x.high);
-
-const low =
-Number(x.low);
+    let q=c.at(-1);
 
 
-const bullish =
-close >= open;
+    if(q.l>a.h){
+
+        return [
+            true,
+            "BULLISH FVG"
+        ];
+
+    }
 
 
-ctx.strokeStyle =
-bullish
-? "#21e56d"
-: "#ff4d4d";
+    if(q.h<a.l){
 
-ctx.fillStyle =
-ctx.strokeStyle;
+        return [
+            true,
+            "BEARISH FVG"
+        ];
 
-
-ctx.beginPath();
-
-ctx.moveTo(
-xx,
-y(high)
-);
-
-ctx.lineTo(
-xx,
-y(low)
-);
-
-ctx.stroke();
+    }
 
 
-const top =
-y(
-Math.max(
-open,
-close
-)
-);
-
-
-const bottom =
-y(
-Math.min(
-open,
-close
-)
-);
-
-
-ctx.fillRect(
-xx-cw*.28,
-top,
-Math.max(
-2,
-cw*.56
-),
-Math.max(
-1,
-bottom-top
-)
-);
-
-});
-
-
-/* SIGNAL LINE */
-
-if(
-signalData &&
-signalData.signal !==
-"NO TRADE" &&
-signalData.entry != null
-){
-
-const yy =
-y(
-Number(
-signalData.entry
-)
-);
-
-
-ctx.setLineDash(
-[7,5]
-);
-
-
-ctx.strokeStyle =
-signalData.signal === "BUY"
-? "#21e56d"
-: "#ff4d4d";
-
-
-ctx.beginPath();
-
-ctx.moveTo(
-0,
-yy
-);
-
-ctx.lineTo(
-w,
-yy
-);
-
-ctx.stroke();
-
-
-ctx.setLineDash([]);
-
-}
+    return [
+        false,
+        "NONE"
+    ];
 
 }
 
 
-/* LOAD DATA */
+function momentum(c){
 
-async function loadData(){
-
-const symbol =
-$("symbol").value;
-
-const tf =
-$("tf").value;
+    if(c.length<6)
+        return "NEUTRAL";
 
 
-if(
-!symbol ||
-!tf
-){
+    let q=c.at(-1);
 
-return;
-
-}
+    let o=c.at(-4);
 
 
-try{
-
-const results =
-await Promise.all([
-
-getJSON(
-`/api/candles/${symbol}/${tf}`
-),
-
-getJSON(
-`/api/signal/${symbol}/${tf}`
-)
-
-]);
+    let move =
+    q.c-o.c;
 
 
-const candleData =
-results[0];
-
-const signalData =
-results[1];
-
-
-candles =
-candleData.candles ||
-[];
+    let range =
+    Math.max(
+        q.h-q.l,
+        1e-9
+    );
 
 
-drawChart(
-candles,
-signalData
-);
+    if(
+        move >
+        range*.25
+    )
+        return "BULLISH";
 
 
-renderSignal(
-signalData
-);
+    if(
+        move <
+        -range*.25
+    )
+        return "BEARISH";
 
 
-$("chartStatus").textContent =
-`${symbol} • ${tf} • ${candles.length} closed candles`;
-
-}
-
-catch(e){
-
-$("chartStatus").textContent =
-"Waiting for live market data";
-
-}
+    return "NEUTRAL";
 
 }
 
 
-/* RENDER SIGNAL */
+function analyze(){
 
-function renderSignal(s){
+    if(candles.length<210){
 
-const signal =
-s.signal ||
-"NO TRADE";
+        return {
 
+            signal:"NO TRADE",
 
-$("signal").textContent =
-signal;
+            confidence:0,
 
+            reason:
+            `Need 210 closed candles. Current: ${candles.length}`
 
-$("signal").className =
-"signal " +
+        };
 
-(
-signal === "BUY"
-
-? "buy"
-
-: signal === "SELL"
-
-? "sell"
-
-: "wait"
-);
+    }
 
 
-$("confidence").textContent =
-(s.confidence ?? 0) +
-"%";
+    let close =
+    candles.map(
+        x=>x.c
+    );
 
 
-$("price").textContent =
-"Price: " +
-fmt(s.price);
+    let price =
+    close.at(-1);
 
 
-$("entry").textContent =
-fmt(s.entry);
+    let e50 =
+    ema(close,50);
 
 
-$("sl").textContent =
-fmt(s.sl);
+    let e200 =
+    ema(close,200);
 
 
-$("tp1").textContent =
-fmt(s.tp1);
+    let R =
+    rsi(close);
 
 
-$("tp2").textContent =
-fmt(s.tp2);
+    let A =
+    atr(candles);
 
 
-$("rsi").textContent =
-fmt(s.rsi14);
+    let st =
+    structure(candles);
 
 
-$("atr").textContent =
-fmt(s.atr14);
+    let li =
+    liquidity(candles);
 
 
-$("reason").textContent =
-s.reason ||
-"No sufficient confirmation";
+    let fv =
+    fvg(candles);
 
 
-/*
- IMPORTANT:
-Use server.py SMC values directly.
-This prevents the old UI problem where
-BOS was shown CONFIRMED because another
-confirmation happened.
-*/
+    let mo =
+    momentum(candles);
 
 
-const smc =
-s.smc || {};
+    let bull =
+    e50>e200;
 
 
-setCheck(
-"liq",
-smc.liquidity_grab,
-[
-"BULLISH",
-"BEARISH"
-].includes(
-smc.liquidity_grab
-)
-);
+    let bear =
+    e50<e200;
 
 
-setCheck(
-"bos",
-smc.bos_choch,
-[
-"BULLISH",
-"BEARISH"
-].includes(
-smc.bos_choch
-)
-);
+    let bs=0;
+
+    let ss=0;
+
+    let br=[];
+
+    let sr=[];
 
 
-setCheck(
-"fvg",
-smc.fvg,
-[
-"BULLISH",
-"BEARISH"
-].includes(
-smc.fvg
-)
-);
+    if(bull){
+
+        bs+=2;
+
+        br.push(
+            "EMA50 > EMA200"
+        );
+
+    }
 
 
-setCheck(
-"ema",
-smc.ema_50_200,
-[
-"BULLISH",
-"BEARISH"
-].includes(
-smc.ema_50_200
-)
-);
+    if(bear){
+
+        ss+=2;
+
+        sr.push(
+            "EMA50 < EMA200"
+        );
+
+    }
 
 
-setCheck(
-"rsiCheck",
-smc.rsi14,
-[
-"BULLISH",
-"BEARISH",
-"BULLISH_OVERBOUGHT",
-"BEARISH_OVERSOLD"
-].includes(
-smc.rsi14
-)
-);
+    if(
+        R>=50 &&
+        R<=72
+    ){
+
+        bs++;
+
+        br.push(
+            "RSI bullish"
+        );
+
+    }
 
 
-setCheck(
-"mom",
-smc.momentum,
-[
-"BULLISH",
-"BEARISH"
-].includes(
-smc.momentum
-)
-);
+    if(
+        R>=28 &&
+        R<50
+    ){
+
+        ss++;
+
+        sr.push(
+            "RSI bearish"
+        );
+
+    }
+
+
+    if(
+        st.dir==="BULLISH"
+    ){
+
+        bs+=2;
+
+        br.push(
+            "Bullish BOS/CHoCH"
+        );
+
+    }
+
+
+    if(
+        st.dir==="BEARISH"
+    ){
+
+        ss+=2;
+
+        sr.push(
+            "Bearish BOS/CHoCH"
+        );
+
+    }
+
+
+    if(
+        li[0] &&
+        li[1].startsWith("SELL")
+    ){
+
+        bs++;
+
+        br.push(
+            "Sell-side liquidity grab"
+        );
+
+    }
+
+
+    if(
+        li[0] &&
+        li[1].startsWith("BUY")
+    ){
+
+        ss++;
+
+        sr.push(
+            "Buy-side liquidity grab"
+        );
+
+    }
+
+
+    if(
+        fv[1]==="BULLISH FVG"
+    ){
+
+        bs++;
+
+        br.push(
+            "Bullish FVG"
+        );
+
+    }
+
+
+    if(
+        fv[1]==="BEARISH FVG"
+    ){
+
+        ss++;
+
+        sr.push(
+            "Bearish FVG"
+        );
+
+    }
+
+
+    if(
+        mo==="BULLISH"
+    ){
+
+        bs++;
+
+        br.push(
+            "Bullish momentum"
+        );
+
+    }
+
+
+    if(
+        mo==="BEARISH"
+    ){
+
+        ss++;
+
+        sr.push(
+            "Bearish momentum"
+        );
+
+    }
+
+
+    let side="NONE";
+
+    let sig="NO TRADE";
+
+
+    let score =
+    Math.max(bs,ss);
+
+
+    let conf =
+    Math.min(
+        79,
+        45+score*4
+    );
+
+
+    let reasons =
+    bs>=ss
+    ? br
+    : sr;
+
+
+    if(
+        bs>=6 &&
+        bull &&
+        mo==="BULLISH"
+    ){
+
+        side="BUY";
+
+        sig="BUY";
+
+        conf =
+        Math.min(
+            96,
+            60+bs*5
+        );
+
+        reasons=br;
+
+    }
+
+
+    else if(
+        ss>=6 &&
+        bear &&
+        mo==="BEARISH"
+    ){
+
+        side="SELL";
+
+        sig="SELL";
+
+        conf =
+        Math.min(
+            96,
+            60+ss*5
+        );
+
+        reasons=sr;
+
+    }
+
+
+    let entry=null;
+
+    let sl=null;
+
+    let tp1=null;
+
+    let tp2=null;
+
+
+    if(
+        side!=="NONE" &&
+        A
+    ){
+
+        let risk =
+        Math.max(
+            A*1.25,
+            price*.001
+        );
+
+
+        entry=price;
+
+
+        if(side==="BUY"){
+
+            sl=price-risk;
+
+            tp1=
+            price+
+            risk*1.5;
+
+            tp2=
+            price+
+            risk*2.2;
+
+        }
+
+        else{
+
+            sl=price+risk;
+
+            tp1=
+            price-
+            risk*1.5;
+
+            tp2=
+            price-
+            risk*2.2;
+
+        }
+
+    }
+
+
+    return {
+
+        signal:sig,
+
+        side,
+
+        confidence:conf,
+
+        reason:
+        reasons.join(" + ")
+        ||
+        "No complete setup",
+
+        trend:
+        bull
+        ?"BULLISH"
+        :"BEARISH",
+
+        price,
+
+        entry,
+
+        sl,
+
+        tp1,
+
+        tp2,
+
+        R,
+
+        A,
+
+        st,
+
+        li,
+
+        fv,
+
+        mo,
+
+        e50,
+
+        e200
+
+    };
 
 }
 
 
-/* LIVE STATUS */
+function render(){
 
-async function refreshFeed(){
-
-try{
-
-const d =
-await getJSON(
-"/api/live-status"
-);
+    let x =
+    analyze();
 
 
-const b =
-d.Binance || {};
+    let sig =
+    $("signal");
 
 
-const live =
-b.status === "LIVE";
+    sig.textContent =
+    x.signal;
 
 
-$("feedStatus").textContent =
-live
-? "● LIVE"
-: "● WAITING";
+    sig.className =
+    "signal "+
+    (
+        x.side==="BUY"
+        ?"buy"
+        :
+        x.side==="SELL"
+        ?"sell"
+        :"none"
+    );
 
 
-$("feedStatus").className =
-live
-? "live"
-: "offline";
+    $("reason").textContent =
+    x.reason;
 
 
-$("realFeed").textContent =
-live
+    $("confidence").textContent =
+    (x.confidence||0)+"%";
 
-? "Binance is receiving live market data."
 
-: "Binance is waiting for live data.";
+    $("trend").textContent =
+    x.trend||"—";
+
+
+    $("price").textContent =
+    fmt(
+        x.price
+        ||
+        candles.at(-1)?.c
+    );
+
+
+    $("rsi").textContent =
+    fmt(x.R);
+
+
+    $("atr").textContent =
+    fmt(x.A);
+
+
+    $("entry").textContent =
+    fmt(x.entry);
+
+
+    $("sl").textContent =
+    fmt(x.sl);
+
+
+    $("tp").textContent =
+    (
+        x.tp1
+        ?fmt(x.tp1)
+        :"—"
+    )
+    +
+    " / "
+    +
+    (
+        x.tp2
+        ?fmt(x.tp2)
+        :"—"
+    );
+
+
+    let checks=[
+
+        [
+            x.e50 &&
+            x.e200 &&
+            x.e50!==x.e200,
+
+            "EMA 50/200"
+        ],
+
+        [
+
+            x.R!=null &&
+            (
+                (
+                    x.trend==="BULLISH"
+                    &&
+                    x.R>=50
+                )
+                ||
+                (
+                    x.trend==="BEARISH"
+                    &&
+                    x.R<50
+                )
+            ),
+
+            "RSI 14"
+        ],
+
+        [
+            x.st?.bos,
+            "BOS / CHoCH"
+        ],
+
+        [
+            x.li?.[0],
+            "Liquidity Grab"
+        ],
+
+        [
+            x.fv?.[0],
+            "FVG"
+        ],
+
+        [
+            x.mo &&
+            x.mo!=="NEUTRAL",
+
+            "Momentum"
+        ]
+
+    ];
+
+
+    $("checks").innerHTML =
+    checks
+    .map(
+        z =>
+        `<div class="check">
+        ${z[0]?"✅":"—"}
+        ${z[1]}
+        ${z[0]?"CONFIRMED":""}
+        </div>`
+    )
+    .join("");
+
+
+    $("count").textContent =
+    candles.length;
+
+
+    $("updated").textContent =
+    new Date().toLocaleTimeString();
+
+
+    draw();
 
 }
 
-catch(e){
 
-$("feedStatus").textContent =
-"● WAITING";
+function draw(){
 
-
-$("feedStatus").className =
-"offline";
+    const c =
+    $("chart");
 
 
-$("realFeed").textContent =
-"Live feed status unavailable.";
+    const d =
+    devicePixelRatio||1;
+
+
+    const w =
+    c.clientWidth;
+
+
+    const h =
+    c.clientHeight;
+
+
+    c.width=w*d;
+
+    c.height=h*d;
+
+
+    let x =
+    c.getContext("2d");
+
+
+    x.scale(d,d);
+
+
+    x.clearRect(
+        0,
+        0,
+        w,
+        h
+    );
+
+
+    if(!candles.length)
+        return;
+
+
+    let data =
+    candles.slice(-80);
+
+
+    let min =
+    Math.min(
+        ...data.map(
+            z=>z.l
+        )
+    );
+
+
+    let max =
+    Math.max(
+        ...data.map(
+            z=>z.h
+        )
+    );
+
+
+    let range =
+    max-min||1;
+
+
+    let gap =
+    w/data.length;
+
+
+    let cw =
+    Math.max(
+        2,
+        gap*.58
+    );
+
+
+    data.forEach(
+        (z,i)=>{
+
+            let px =
+            i*gap+
+            gap/2;
+
+
+            let yo =
+            v =>
+            h-
+            (v-min)/
+            range*
+            (h-30)
+            -10;
+
+
+            let op =
+            yo(z.o);
+
+
+            let cl =
+            yo(z.c);
+
+
+            let hi =
+            yo(z.h);
+
+
+            let lo =
+            yo(z.l);
+
+
+            x.beginPath();
+
+            x.moveTo(
+                px,
+                hi
+            );
+
+            x.lineTo(
+                px,
+                lo
+            );
+
+            x.strokeStyle =
+            "#91a89a";
+
+            x.stroke();
+
+
+            x.fillStyle =
+            z.c>=z.o
+            ?" #43e58b"
+            :"#ff5f6d";
+
+
+            x.fillRect(
+
+                px-cw/2,
+
+                Math.min(
+                    op,
+                    cl
+                ),
+
+                cw,
+
+                Math.max(
+                    1,
+                    Math.abs(
+                        cl-op
+                    )
+                )
+
+            );
+
+        }
+    );
 
 }
 
+
+async function loadHistory(){
+
+    $("feed").textContent =
+    "LOADING HISTORY...";
+
+
+    try{
+
+        let url =
+        `${API}?symbol=${currentSymbol}&interval=${currentTF}&limit=500`;
+
+
+        let response =
+        await fetch(url);
+
+
+        if(!response.ok)
+            throw Error(
+                "HTTP "+response.status
+            );
+
+
+        let rows =
+        await response.json();
+
+
+        let step =
+        tfMs[currentTF];
+
+
+        let now =
+        Date.now();
+
+
+        candles =
+        rows
+        .filter(
+            z =>
+            Number(z[0])+step<=now
+        )
+        .map(
+            z => ({
+                t:+z[0],
+                o:+z[1],
+                h:+z[2],
+                l:+z[3],
+                c:+z[4],
+                v:+z[5]
+            })
+        );
+
+
+        $("feed").textContent =
+        "LIVE";
+
+
+        $("feed").className =
+        "live";
+
+
+        render();
+
+    }
+
+    catch(error){
+
+        $("feed").textContent =
+        "HISTORY ERROR";
+
+
+        $("feed").className =
+        "bad";
+
+
+        $("reason").textContent =
+        "Binance history error: "
+        +
+        error.message;
+
+    }
+
 }
 
 
-/* EVENTS */
+function startWS(){
 
-$("market").onchange =
-() => updateSymbols(true);
+    if(socket){
 
+        try{
+            socket.close()
+        }
+        catch(e){}
 
-$("tf").onchange =
-loadData;
-
-
-$("symbol").onchange =
-loadData;
+    }
 
 
-window.addEventListener(
-"resize",
-() => drawChart(
-candles,
-null
-)
-);
+    let stream =
+    `${currentSymbol.toLowerCase()}@kline_${currentTF}`;
 
 
-/* START */
+    socket =
+    new WebSocket(
+        `${WS}?streams=${stream}`
+    );
 
-(async()=>{
 
-try{
+    socket.onopen=()=>{
 
-await loadSources();
+        $("feed").textContent =
+        "LIVE";
 
-await loadInstruments();
 
-await refreshFeed();
+        $("feed").className =
+        "live";
 
-await loadData();
+    };
+
+
+    socket.onmessage=e=>{
+
+        let d =
+        JSON.parse(e.data).data;
+
+
+        let k=d.k;
+
+
+        if(!k)
+            return;
+
+
+        let q={
+
+            t:+k.t,
+
+            o:+k.o,
+
+            h:+k.h,
+
+            l:+k.l,
+
+            c:+k.c,
+
+            v:+k.v
+
+        };
+
+
+        let last =
+        candles.at(-1);
+
+
+        if(
+            last &&
+            last.t===q.t
+        ){
+
+            candles[
+                candles.length-1
+            ]=q;
+
+        }
+
+        else if(
+            !last ||
+            q.t>last.t
+        ){
+
+            candles.push(q);
+
+        }
+
+
+        if(
+            candles.length>500
+        ){
+
+            candles =
+            candles.slice(-500);
+
+        }
+
+
+        render();
+
+    };
+
+
+    socket.onerror=()=>{
+
+        $("feed").textContent =
+        "WS ERROR";
+
+        $("feed").className =
+        "bad";
+
+    };
+
+
+    socket.onclose=()=>{
+
+        setTimeout(
+            startWS,
+            3000
+        );
+
+    };
 
 }
 
-catch(e){
 
-$("realFeed").textContent =
-"Startup error: " +
-e.message;
+async function reload(){
+
+    currentSymbol =
+    $("symbol").value;
+
+
+    currentTF =
+    $("tf").value;
+
+
+    await loadHistory();
+
+
+    startWS();
 
 }
 
 
-/*
- Refresh every 5 seconds.
-*/
+$("symbol").value =
+"BTCUSDT";
+
+
+$("tf").value =
+"1m";
+
+
+reload();
+
 
 setInterval(
-async()=>{
-
-await loadData();
-
-await refreshFeed();
-
-},
-5000
+    ()=>{
+        if(candles.length)
+            render()
+    },
+    10000
 );
-
-})();
 
 </script>
 
