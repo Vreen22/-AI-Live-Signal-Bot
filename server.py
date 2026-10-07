@@ -1,14 +1,9 @@
 import asyncio
-import csv
-import io
 import json
 import time
 import urllib.parse
 import urllib.request
-import urllib.error
-import zipfile
 from collections import deque
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import websockets
@@ -17,2102 +12,1467 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 
-# ============================================================
-# AI LIVE SIGNAL BOT V22
-# Binance Archive History + Binance Live WebSocket
-# SIGNAL ONLY / AUTO TRADE OFF
-# ============================================================
-
 BASE = Path(__file__).resolve().parent
 INDEX = BASE / "index.html"
 
-app = FastAPI(title="AI Live Signal Bot V22")
+APP_TITLE = "AI Live Signal Bot V23"
+
+# Binance public market-data API
+BINANCE_REST = "https://data-api.binance.vision/api/v3/klines"
+
+# Binance public WebSocket
+BINANCE_WS = "wss://data-stream.binance.vision/stream"
+
+
+TIMEFRAMES = {
+    "1m": 60_000,
+    "5m": 300_000,
+    "15m": 900_000,
+    "30m": 1_800_000,
+    "1h": 3_600_000,
+    "2h": 7_200_000,
+    "4h": 14_400_000,
+}
+
+
+DEFAULT_SYMBOLS = [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "ADAUSDT",
+    "DOGEUSDT",
+    "AVAXUSDT",
+    "LINKUSDT",
+    "LTCUSDT",
+]
+
+
+bars = {}
+locks = {}
+
+ws_task = None
+history_task = None
+
+last_ws_message_ms = 0
+ws_connected = False
+last_error = ""
+
+
+for symbol in DEFAULT_SYMBOLS:
+    for tf in TIMEFRAMES:
+        bars[(symbol, tf)] = deque(maxlen=600)
+        locks[(symbol, tf)] = asyncio.Lock()
+
+
+app = FastAPI(title=APP_TITLE)
+
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# ============================================================
-# CONFIG
-# ============================================================
-
-DEFAULT_SOURCES = [
-    "Binance",
-    "Coinbase",
-    "Kraken",
-    "OKX",
-    "Bybit",
-    "KuCoin",
-    "Gate.io",
-    "Bitfinex",
-    "Bitstamp",
-    "Crypto.com",
-    "OANDA",
-    "FXCM",
-    "IG",
-    "Twelve Data",
-    "Finnhub",
-    "Alpaca",
-    "Polygon/Massive",
-    "Alpha Vantage",
-    "Intrinio",
-    "dxFeed",
-    "Barchart",
-    "EODHD",
-]
-
-SYMBOLS = [
-    "BTCUSDT",
-    "ETHUSDT",
-    "SOLUSDT",
-    "BNBUSDT",
-    "XRPUSDT",
-    "EURUSD",
-    "GBPUSD",
-    "USDJPY",
-    "USDCHF",
-    "AUDUSD",
-    "USDCAD",
-    "NZDUSD",
-    "XAUUSD",
-]
-
-INTERVALS = [
-    "1m",
-    "5m",
-    "15m",
-    "30m",
-    "1h",
-    "2h",
-    "4h",
-]
-
-CRYPTO_SYMBOLS = [
-    "BTCUSDT",
-    "ETHUSDT",
-    "SOLUSDT",
-    "BNBUSDT",
-    "XRPUSDT",
-]
-
-# Only CLOSED candles are stored.
-bars = {
-    (symbol, tf): deque(maxlen=500)
-    for symbol in SYMBOLS
-    for tf in INTERVALS
-}
-
-latest = {}
-
-feed_heartbeat = {
-    "Binance": 0.0
-}
-
-background_tasks = []
+def now_ms():
+    return int(time.time() * 1000)
 
 
-# ============================================================
-# LOAD OPTIONAL JSON FILES
-# ============================================================
-
-def load_json(name, fallback):
-    try:
-        p = BASE / name
-
-        if p.exists():
-            return json.loads(
-                p.read_text(
-                    encoding="utf-8"
-                )
-            )
-
-    except Exception as exc:
-        print(
-            f"Could not read {name}: {exc}"
-        )
-
-    return fallback
-
-
-PROVIDERS = load_json(
-    "providers.json",
-    {}
-)
-
-INSTRUMENTS = load_json(
-    "instruments.json",
-    {}
-)
-
-
-# ============================================================
-# INDICATORS
-# ============================================================
+# =========================
+# EMA
+# =========================
 
 def ema(values, period):
     if len(values) < period:
         return None
 
-    e = sum(
-        values[:period]
-    ) / period
+    k = 2.0 / (period + 1.0)
 
-    k = 2 / (period + 1)
+    e = sum(values[:period]) / period
 
-    for x in values[period:]:
-        e = (
-            x * k
-            + e * (1 - k)
-        )
+    for value in values[period:]:
+        e = value * k + e * (1.0 - k)
 
     return e
 
 
+# =========================
+# RSI
+# =========================
+
 def rsi(values, period=14):
-    if len(values) < period + 1:
+    if len(values) <= period:
         return None
 
     gains = []
     losses = []
 
-    for a, b in zip(
-        values[-period - 1:-1],
-        values[-period:]
-    ):
-        d = b - a
+    for i in range(1, period + 1):
+        d = values[i] - values[i - 1]
 
-        gains.append(
-            max(d, 0.0)
-        )
+        gains.append(max(d, 0.0))
+        losses.append(max(-d, 0.0))
 
-        losses.append(
-            max(-d, 0.0)
-        )
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
 
-    avg_gain = (
-        sum(gains) / period
-    )
+    for i in range(period + 1, len(values)):
+        d = values[i] - values[i - 1]
 
-    avg_loss = (
-        sum(losses) / period
-    )
+        gain = max(d, 0.0)
+        loss = max(-d, 0.0)
+
+        avg_gain = ((avg_gain * (period - 1)) + gain) / period
+        avg_loss = ((avg_loss * (period - 1)) + loss) / period
 
     if avg_loss == 0:
-        return (
-            100.0
-            if avg_gain > 0
-            else 50.0
-        )
+        return 100.0
 
-    rs = (
-        avg_gain / avg_loss
-    )
+    rs = avg_gain / avg_loss
 
-    return (
-        100.0
-        - (
-            100.0
-            / (1.0 + rs)
-        )
-    )
+    return 100.0 - (100.0 / (1.0 + rs))
 
+
+# =========================
+# ATR
+# =========================
 
 def atr(candles, period=14):
     if len(candles) < period + 1:
         return None
 
-    tr = []
+    trs = []
 
     for i in range(1, len(candles)):
+        cur = candles[i]
+        prev = candles[i - 1]
 
-        c = candles[i]
-        p = candles[i - 1]
-
-        tr.append(
-            max(
-                c["high"] - c["low"],
-                abs(
-                    c["high"]
-                    - p["close"]
-                ),
-                abs(
-                    c["low"]
-                    - p["close"]
-                ),
-            )
+        tr = max(
+            cur["high"] - cur["low"],
+            abs(cur["high"] - prev["close"]),
+            abs(cur["low"] - prev["close"]),
         )
 
-    return (
-        sum(tr[-period:])
-        / period
-    )
+        trs.append(tr)
 
-
-# ============================================================
-# SMC DETECTION
-# ============================================================
-
-def detect_liquidity(data):
-
-    if len(data) < 11:
+    if len(trs) < period:
         return None
 
-    last = data[-1]
+    value = sum(trs[:period]) / period
 
-    recent = data[-11:-1]
+    for tr in trs[period:]:
+        value = ((value * (period - 1)) + tr) / period
 
-    prev_low = min(
-        x["low"]
-        for x in recent
-    )
-
-    prev_high = max(
-        x["high"]
-        for x in recent
-    )
-
-    # Bullish liquidity sweep
-    if (
-        last["low"] < prev_low
-        and last["close"] > prev_low
-    ):
-        return "bullish"
-
-    # Bearish liquidity sweep
-    if (
-        last["high"] > prev_high
-        and last["close"] < prev_high
-    ):
-        return "bearish"
-
-    return None
+    return value
 
 
-def detect_bos_choch(data):
+# =========================
+# SAFE ROUND
+# =========================
 
-    if len(data) < 5:
+def safe_round(value, digits=4):
+    if value is None:
         return None
 
-    last = data[-1]
-
-    recent = data[-5:-1]
-
-    swing_high = max(
-        x["high"]
-        for x in recent
-    )
-
-    swing_low = min(
-        x["low"]
-        for x in recent
-    )
-
-    if last["close"] > swing_high:
-        return "bullish"
-
-    if last["close"] < swing_low:
-        return "bearish"
-
-    return None
+    return round(float(value), digits)
 
 
-def detect_fvg(data):
+# =========================
+# BINANCE REST
+# =========================
 
-    if len(data) < 3:
-        return None
+def request_klines(symbol, interval, limit=1000):
 
-    c1 = data[-3]
-    c2 = data[-2]
-    c3 = data[-1]
-
-    # Bullish FVG
-    if c1["high"] < c3["low"]:
-        return "bullish"
-
-    # Bearish FVG
-    if c1["low"] > c3["high"]:
-        return "bearish"
-
-    return None
-
-
-def detect_momentum(last, prev):
-
-    if (
-        last["close"] > last["open"]
-        and last["close"] > prev["close"]
-    ):
-        return "bullish"
-
-    if (
-        last["close"] < last["open"]
-        and last["close"] < prev["close"]
-    ):
-        return "bearish"
-
-    return None
-
-
-def recent_swing_levels(
-    data,
-    lookback=40,
-    pivot=2
-):
-
-    if len(data) < (
-        pivot * 2 + 5
-    ):
-        return None, None
-
-    window = (
-        data[-lookback:]
-        if len(data) > lookback
-        else data
-    )
-
-    swing_highs = []
-    swing_lows = []
-
-    for i in range(
-        pivot,
-        len(window) - pivot
-    ):
-
-        h = window[i]["high"]
-        l = window[i]["low"]
-
-        left = window[
-            i - pivot:i
-        ]
-
-        right = window[
-            i + 1:i + pivot + 1
-        ]
-
-        if all(
-            h > x["high"]
-            for x in left + right
-        ):
-            swing_highs.append(h)
-
-        if all(
-            l < x["low"]
-            for x in left + right
-        ):
-            swing_lows.append(l)
-
-    return (
-        swing_highs[-1]
-        if swing_highs
-        else None,
-
-        swing_lows[-1]
-        if swing_lows
-        else None,
-    )
-
-
-# ============================================================
-# ANALYSIS ENGINE
-# ============================================================
-
-def analyze(symbol, tf):
-
-    data = list(
-        bars.get(
-            (symbol, tf),
-            []
-        )
-    )
-
-    if len(data) < 200:
-
-        return {
+    params = urllib.parse.urlencode(
+        {
             "symbol": symbol,
-            "timeframe": tf,
-            "signal": "NO TRADE",
-            "signal_strength": "WAITING",
-            "confidence": 0,
-            "reason": (
-                "Waiting for 200 "
-                "closed candles "
-                f"({len(data)}/200)"
-            ),
-            "candles": len(data),
-            "source": "Binance",
-            "timestamp": int(time.time()),
-            "auto_trade": False,
-
-            "entry": (
-                data[-1]["close"]
-                if data
-                else None
-            ),
-
-            "sl": None,
-            "tp1": None,
-            "tp2": None,
-            "price": (
-                data[-1]["close"]
-                if data
-                else None
-            ),
-
-            "ema9": None,
-            "ema21": None,
-            "ema50": None,
-            "ema200": None,
-            "rsi14": None,
-            "atr14": None,
-
-            "swing_high": None,
-            "swing_low": None,
-
-            "risk": None,
-            "rr_tp1": None,
-            "rr_tp2": None,
-
-            "confirmations": [],
-
-            "smc": {
-                "liquidity_grab": "WAITING",
-                "bos_choch": "WAITING",
-                "fvg": "WAITING",
-                "ema_50_200": "WAITING",
-                "rsi14": "WAITING",
-                "momentum": "WAITING",
-            },
+            "interval": interval,
+            "limit": min(int(limit), 1000),
         }
-
-    closes = [
-        x["close"]
-        for x in data
-    ]
-
-    e9 = ema(
-        closes,
-        9
     )
 
-    e21 = ema(
-        closes,
-        21
-    )
-
-    e50 = ema(
-        closes,
-        50
-    )
-
-    e200 = ema(
-        closes,
-        200
-    )
-
-    r = rsi(
-        closes,
-        14
-    )
-
-    a = atr(
-        data,
-        14
-    )
-
-    last = data[-1]
-    prev = data[-2]
-
-    liquidity = detect_liquidity(
-        data
-    )
-
-    bos = detect_bos_choch(
-        data
-    )
-
-    fvg = detect_fvg(
-        data
-    )
-
-    momentum = detect_momentum(
-        last,
-        prev
-    )
-
-    buy_score = 0
-    sell_score = 0
-
-    confirmations = []
-
-    # --------------------------------------------------------
-    # EMA
-    # --------------------------------------------------------
-
-    if e50 > e200:
-
-        ema_state = "BULLISH"
-
-        buy_score += 2
-
-        confirmations.append(
-            "EMA 50 > EMA 200"
-        )
-
-    elif e50 < e200:
-
-        ema_state = "BEARISH"
-
-        sell_score += 2
-
-        confirmations.append(
-            "EMA 50 < EMA 200"
-        )
-
-    else:
-
-        ema_state = "NEUTRAL"
-
-
-    # Fast EMA bonus
-
-    if e9 > e21:
-        buy_score += 1
-
-    elif e9 < e21:
-        sell_score += 1
-
-
-    # --------------------------------------------------------
-    # RSI
-    # --------------------------------------------------------
-
-    if 55 <= r <= 75:
-
-        rsi_state = "BULLISH"
-
-        buy_score += 1
-
-        confirmations.append(
-            "RSI bullish"
-        )
-
-    elif 25 <= r <= 45:
-
-        rsi_state = "BEARISH"
-
-        sell_score += 1
-
-        confirmations.append(
-            "RSI bearish"
-        )
-
-    elif r > 75:
-
-        rsi_state = (
-            "BULLISH_OVERBOUGHT"
-        )
-
-        if e50 > e200:
-            buy_score += 1
-
-    elif r < 25:
-
-        rsi_state = (
-            "BEARISH_OVERSOLD"
-        )
-
-        if e50 < e200:
-            sell_score += 1
-
-    else:
-
-        rsi_state = "NEUTRAL"
-
-
-    # --------------------------------------------------------
-    # BOS / CHoCH
-    # --------------------------------------------------------
-
-    if bos == "bullish":
-
-        buy_score += 2
-
-        confirmations.append(
-            "BOS/CHoCH bullish"
-        )
-
-    elif bos == "bearish":
-
-        sell_score += 2
-
-        confirmations.append(
-            "BOS/CHoCH bearish"
-        )
-
-
-    # --------------------------------------------------------
-    # LIQUIDITY
-    # --------------------------------------------------------
-
-    if liquidity == "bullish":
-
-        buy_score += 2
-
-        confirmations.append(
-            "Liquidity grab bullish"
-        )
-
-    elif liquidity == "bearish":
-
-        sell_score += 2
-
-        confirmations.append(
-            "Liquidity grab bearish"
-        )
-
-
-    # --------------------------------------------------------
-    # FVG
-    # --------------------------------------------------------
-
-    if fvg == "bullish":
-
-        buy_score += 1
-
-        confirmations.append(
-            "FVG bullish"
-        )
-
-    elif fvg == "bearish":
-
-        sell_score += 1
-
-        confirmations.append(
-            "FVG bearish"
-        )
-
-
-    # --------------------------------------------------------
-    # MOMENTUM
-    # --------------------------------------------------------
-
-    if momentum == "bullish":
-
-        buy_score += 1
-
-        confirmations.append(
-            "Momentum bullish"
-        )
-
-    elif momentum == "bearish":
-
-        sell_score += 1
-
-        confirmations.append(
-            "Momentum bearish"
-        )
-
-
-    # ========================================================
-    # STRICT TRADE RULE
-    # ========================================================
-
-    bullish_core = (
-        e50 > e200
-        and bos == "bullish"
-        and fvg == "bullish"
-        and momentum == "bullish"
-        and rsi_state in (
-            "BULLISH",
-            "BULLISH_OVERBOUGHT",
-        )
-    )
-
-    bearish_core = (
-        e50 < e200
-        and bos == "bearish"
-        and fvg == "bearish"
-        and momentum == "bearish"
-        and rsi_state in (
-            "BEARISH",
-            "BEARISH_OVERSOLD",
-        )
-    )
-
-
-    if (
-        bullish_core
-        and buy_score > sell_score
-    ):
-
-        signal = "BUY"
-
-        score = buy_score
-
-        core_count = 5
-
-        signal_strength = (
-            "STRONG"
-            if liquidity == "bullish"
-            else "CONFIRMED"
-        )
-
-    elif (
-        bearish_core
-        and sell_score > buy_score
-    ):
-
-        signal = "SELL"
-
-        score = sell_score
-
-        core_count = 5
-
-        signal_strength = (
-            "STRONG"
-            if liquidity == "bearish"
-            else "CONFIRMED"
-        )
-
-    else:
-
-        signal = "NO TRADE"
-
-        score = max(
-            buy_score,
-            sell_score
-        )
-
-        core_count = 0
-
-        signal_strength = "WAIT"
-
-
-    # ========================================================
-    # CONFIDENCE
-    # ========================================================
-
-    if signal in (
-        "BUY",
-        "SELL"
-    ):
-
-        confidence = 80
-
-        wanted_liq = (
-            "bullish"
-            if signal == "BUY"
-            else "bearish"
-        )
-
-        if liquidity == wanted_liq:
-            confidence += 8
-
-        if (
-            signal == "BUY"
-            and rsi_state == "BULLISH"
-        ):
-            confidence += 4
-
-        if (
-            signal == "SELL"
-            and rsi_state == "BEARISH"
-        ):
-            confidence += 4
-
-        if (
-            e9 > e21
-            and signal == "BUY"
-        ):
-            confidence += 2
-
-        if (
-            e9 < e21
-            and signal == "SELL"
-        ):
-            confidence += 2
-
-        confidence = min(
-            95,
-            confidence
-        )
-
-    else:
-
-        confidence = min(
-            79,
-            max(
-                0,
-                int(
-                    45
-                    + score * 5
-                )
-            )
-        )
-
-
-    # ========================================================
-    # ENTRY / SL / TP
-    # ========================================================
-
-    entry = last["close"]
-
-    sl = None
-    tp1 = None
-    tp2 = None
-
-    risk = None
-
-    rr_tp1 = None
-    rr_tp2 = None
-
-    swing_high, swing_low = (
-        recent_swing_levels(
-            data,
-            lookback=40,
-            pivot=2
-        )
-    )
-
-
-    # BUY
-
-    if (
-        a
-        and a > 0
-        and signal == "BUY"
-    ):
-
-        atr_floor = (
-            entry - 1.0 * a
-        )
-
-        if swing_low is not None:
-
-            structure_sl = (
-                swing_low
-                - 0.25 * a
-            )
-
-        else:
-
-            structure_sl = (
-                atr_floor
-            )
-
-        sl = min(
-            structure_sl,
-            atr_floor
-        )
-
-        risk = (
-            entry - sl
-        )
-
-        if risk > 0:
-
-            tp1 = (
-                entry + risk
-            )
-
-            tp2 = (
-                entry
-                + 2.0 * risk
-            )
-
-            rr_tp1 = 1.0
-            rr_tp2 = 2.0
-
-
-    # SELL
-
-    elif (
-        a
-        and a > 0
-        and signal == "SELL"
-    ):
-
-        atr_ceiling = (
-            entry + 1.0 * a
-        )
-
-        if swing_high is not None:
-
-            structure_sl = (
-                swing_high
-                + 0.25 * a
-            )
-
-        else:
-
-            structure_sl = (
-                atr_ceiling
-            )
-
-        sl = max(
-            structure_sl,
-            atr_ceiling
-        )
-
-        risk = (
-            sl - entry
-        )
-
-        if risk > 0:
-
-            tp1 = (
-                entry - risk
-            )
-
-            tp2 = (
-                entry
-                - 2.0 * risk
-            )
-
-            rr_tp1 = 1.0
-            rr_tp2 = 2.0
-
-
-    # ========================================================
-    # RESULT
-    # ========================================================
-
-    return {
-
-        "symbol": symbol,
-
-        "timeframe": tf,
-
-        "signal": signal,
-
-        "signal_strength":
-            signal_strength,
-
-        "confidence":
-            confidence,
-
-        "reason":
-            (
-                " + ".join(
-                    confirmations[-6:]
-                )
-                if confirmations
-                else
-                "No sufficient confirmation"
-            ),
-
-        "entry": entry,
-
-        "sl": sl,
-
-        "tp1": tp1,
-
-        "tp2": tp2,
-
-        "price": entry,
-
-        "ema9": e9,
-
-        "ema21": e21,
-
-        "ema50": e50,
-
-        "ema200": e200,
-
-        "rsi14": r,
-
-        "atr14": a,
-
-        "swing_high":
-            swing_high,
-
-        "swing_low":
-            swing_low,
-
-        "risk": risk,
-
-        "rr_tp1":
-            rr_tp1,
-
-        "rr_tp2":
-            rr_tp2,
-
-        "core_confirmations":
-            core_count,
-
-        "confirmations":
-            confirmations,
-
-        "smc": {
-
-            "liquidity_grab":
-                liquidity.upper()
-                if liquidity
-                else "NONE",
-
-            "bos_choch":
-                bos.upper()
-                if bos
-                else "NONE",
-
-            "fvg":
-                fvg.upper()
-                if fvg
-                else "NONE",
-
-            "ema_50_200":
-                ema_state,
-
-            "rsi14":
-                rsi_state,
-
-            "momentum":
-                momentum.upper()
-                if momentum
-                else "NEUTRAL",
-        },
-
-        "auto_trade": False,
-
-        "source": "Binance",
-
-        "candles":
-            len(data),
-
-        "timestamp":
-            int(time.time()),
-    }
-
-
-# ============================================================
-# BINANCE ARCHIVE
-# ============================================================
-
-ARCHIVE_BASE = (
-    "https://data.binance.vision/"
-    "data/spot/daily/klines"
-)
-
-USER_AGENT = (
-    "Mozilla/5.0 "
-    "AI-Live-Signal-Bot-V22"
-)
-
-
-def interval_minutes(interval):
-
-    mapping = {
-        "1m": 1,
-        "5m": 5,
-        "15m": 15,
-        "30m": 30,
-        "1h": 60,
-        "2h": 120,
-        "4h": 240,
-    }
-
-    return mapping.get(
-        interval,
-        1
-    )
-
-
-def archive_days_needed(
-    interval,
-    needed=300
-):
-
-    mins = interval_minutes(
-        interval
-    )
-
-    candles_per_day = (
-        1440 // mins
-    )
-
-    return (
-        needed
-        // candles_per_day
-    ) + 2
-
-
-def download_archive_day(
-    symbol,
-    interval,
-    date_string
-):
-
-    filename = (
-        f"{symbol}-{interval}-"
-        f"{date_string}.zip"
-    )
-
-    url = (
-        f"{ARCHIVE_BASE}/"
-        f"{symbol}/"
-        f"{interval}/"
-        f"{filename}"
-    )
+    url = f"{BINANCE_REST}?{params}"
 
     req = urllib.request.Request(
         url,
         headers={
-            "User-Agent":
-                USER_AGENT,
-            "Accept":
-                "*/*",
+            "User-Agent": "AI-Live-Signal-Bot/23",
+            "Accept": "application/json",
         },
     )
 
+    with urllib.request.urlopen(req, timeout=20) as response:
+        raw = response.read()
+
+    return json.loads(raw)
+
+
+# =========================
+# NORMALIZE CANDLE
+# =========================
+
+def normalize_row(row):
+
+    return {
+        "time": int(row[0]),
+        "open": float(row[1]),
+        "high": float(row[2]),
+        "low": float(row[3]),
+        "close": float(row[4]),
+        "volume": float(row[5]),
+        "closed": True,
+    }
+
+
+# =========================
+# LOAD HISTORY
+# =========================
+
+async def load_history(symbol, tf):
+
+    key = (symbol, tf)
+
     try:
 
-        with urllib.request.urlopen(
-            req,
-            timeout=30
-        ) as response:
+        rows = await asyncio.to_thread(
+            request_klines,
+            symbol,
+            tf,
+            1000,
+        )
 
-            content = (
-                response.read()
-            )
+        step = TIMEFRAMES[tf]
+        current = now_ms()
 
-        return content
+        cleaned = []
+
+        for row in rows:
+
+            candle = normalize_row(row)
+
+            # Current/open candle is ignored.
+            if candle["time"] + step <= current:
+                cleaned.append(candle)
+
+        cleaned = cleaned[-500:]
+
+        async with locks[key]:
+
+            bars[key].clear()
+
+            bars[key].extend(cleaned)
+
+        print(
+            f"History loaded {symbol} {tf}: "
+            f"{len(cleaned)} closed candles"
+        )
+
+        return len(cleaned)
 
     except Exception as exc:
 
         print(
-            f"Archive download failed "
-            f"{filename}: {exc}"
+            f"History error {symbol} {tf}: {exc}"
         )
 
-        return None
+        return 0
 
 
-def parse_archive_zip(
-    content
-):
+# =========================
+# INITIAL HISTORY
+# =========================
 
-    if not content:
-        return []
+async def load_initial_history():
 
-    candles = []
-
-    try:
-
-        with zipfile.ZipFile(
-            io.BytesIO(content)
-        ) as z:
-
-            names = z.namelist()
-
-            if not names:
-                return []
-
-            with z.open(
-                names[0]
-            ) as f:
-
-                text = (
-                    io.TextIOWrapper(
-                        f,
-                        encoding="utf-8"
-                    )
-                )
-
-                reader = csv.reader(
-                    text
-                )
-
-                for row in reader:
-
-                    if not row:
-                        continue
-
-                    # Binance CSV can have header
-                    if (
-                        row[0]
-                        .lower()
-                        .startswith(
-                            "open time"
-                        )
-                    ):
-                        continue
-
-                    if len(row) < 6:
-                        continue
-
-                    try:
-
-                        candles.append({
-
-                            "time":
-                                int(row[0]),
-
-                            "open":
-                                float(row[1]),
-
-                            "high":
-                                float(row[2]),
-
-                            "low":
-                                float(row[3]),
-
-                            "close":
-                                float(row[4]),
-
-                            "volume":
-                                float(row[5]),
-                        })
-
-                    except Exception:
-                        continue
-
-    except Exception as exc:
-
-        print(
-            f"Archive parse error: {exc}"
-        )
-
-    return candles
-
-
-async def load_archive_history(
-    symbol,
-    interval,
-    needed=300
-):
-
-    days = archive_days_needed(
-        interval,
-        needed
-    )
-
-    today = datetime.now(
-        timezone.utc
-    ).date()
-
-    all_candles = []
-
-    print(
-        f"Loading archive history "
-        f"{symbol} {interval} "
-        f"({days} days)"
-    )
-
-    for offset in range(
-        days
-    ):
-
-        day = (
-            today
-            - timedelta(days=offset)
-        )
-
-        date_string = day.isoformat()
-
-        content = (
-            await asyncio.to_thread(
-                download_archive_day,
-                symbol,
-                interval,
-                date_string
-            )
-        )
-
-        if content:
-
-            data = (
-                await asyncio.to_thread(
-                    parse_archive_zip,
-                    content
-                )
-            )
-
-            all_candles.extend(
-                data
-            )
-
-        # Small pause between archive files.
-        await asyncio.sleep(
-            0.15
-        )
-
-    # Remove duplicates.
-    unique = {}
-
-    for candle in all_candles:
-
-        unique[
-            candle["time"]
-        ] = candle
-
-    ordered = sorted(
-        unique.values(),
-        key=lambda x:
-            x["time"]
-    )
-
-    # Remove currently open candle.
-    now_ms = (
-        int(time.time() * 1000)
-    )
-
-    minutes = interval_minutes(
-        interval
-    )
-
-    interval_ms = (
-        minutes
-        * 60
-        * 1000
-    )
-
-    closed = []
-
-    for candle in ordered:
-
-        candle_close_time = (
-            candle["time"]
-            + interval_ms
-        )
-
-        if candle_close_time <= now_ms:
-            closed.append(
-                candle
-            )
-
-    closed = closed[-500:]
-
-    q = bars[
-        (symbol, interval)
+    priority = [
+        "1m",
+        "5m",
+        "15m",
+        "30m",
+        "1h",
+        "2h",
+        "4h",
     ]
 
-    q.clear()
+    # BTC first
+    for tf in priority:
 
-    q.extend(
-        closed
-    )
-
-    if q:
-
-        latest[
-            (symbol, interval)
-        ] = analyze(
-            symbol,
-            interval
-        )
-
-    print(
-        f"Archive loaded "
-        f"{symbol} {interval}: "
-        f"{len(closed)} closed candles"
-    )
-
-    return len(closed)
-
-
-# ============================================================
-# LOAD ONE HISTORY
-# ============================================================
-
-async def load_one_history(
-    symbol,
-    tf
-):
-
-    try:
-
-        count = (
-            await load_archive_history(
-                symbol,
-                tf,
-                300
-            )
-        )
-
-        if count > 0:
-            return count
-
-    except Exception as exc:
-
-        print(
-            f"Archive history error "
-            f"{symbol} {tf}: {exc}"
-        )
-
-
-    print(
-        f"WARNING: no history "
-        f"loaded for {symbol} {tf}"
-    )
-
-    return 0
-
-
-# ============================================================
-# LOAD ALL HISTORY
-# ============================================================
-
-async def load_history():
-
-    # First load BTC 1m.
-    first = (
-        await load_one_history(
+        await load_history(
             "BTCUSDT",
-            "1m"
-        )
-    )
-
-    if first == 0:
-
-        print(
-            "WARNING: BTCUSDT 1m "
-            "history unavailable."
+            tf,
         )
 
-    jobs = []
+    # Other crypto
+    for symbol in DEFAULT_SYMBOLS[1:]:
 
-    for symbol in CRYPTO_SYMBOLS:
+        await load_history(
+            symbol,
+            "1m",
+        )
 
-        for tf in INTERVALS:
+        await load_history(
+            symbol,
+            "5m",
+        )
 
-            if (
-                symbol == "BTCUSDT"
-                and tf == "1m"
-            ):
-                continue
 
-            jobs.append(
-                (symbol, tf)
+# =========================
+# BINANCE WEBSOCKET
+# =========================
+
+async def websocket_loop():
+
+    global ws_connected
+    global last_ws_message_ms
+    global last_error
+
+    streams = []
+
+    for symbol in DEFAULT_SYMBOLS:
+
+        for tf in TIMEFRAMES:
+
+            streams.append(
+                f"{symbol.lower()}@kline_{tf}"
             )
-
-
-    # Small batches.
-    for i in range(
-        0,
-        len(jobs),
-        2
-    ):
-
-        batch = [
-
-            load_one_history(
-                symbol,
-                tf
-            )
-
-            for symbol, tf
-            in jobs[i:i + 2]
-        ]
-
-        await asyncio.gather(
-            *batch
-        )
-
-        await asyncio.sleep(
-            0.5
-        )
-
-
-# ============================================================
-# LIVE BINANCE WEBSOCKET
-# ============================================================
-
-async def binance_stream():
-
-    streams = "/".join(
-
-        f"{symbol.lower()}"
-        f"@kline_{tf}"
-
-        for symbol
-        in CRYPTO_SYMBOLS
-
-        for tf
-        in INTERVALS
-    )
 
     url = (
-        "wss://stream.binance.com:9443/stream"
-        f"?streams={streams}"
+        BINANCE_WS
+        + "?streams="
+        + "/".join(streams)
     )
 
     while True:
 
         try:
 
+            print(
+                "Connecting Binance public WebSocket..."
+            )
+
             async with websockets.connect(
-
                 url,
-
                 ping_interval=20,
-
                 ping_timeout=20,
-
-                close_timeout=10,
-
-                max_size=2**20,
-
+                close_timeout=5,
+                max_size=8 * 1024 * 1024,
             ) as ws:
+
+                ws_connected = True
+                last_error = ""
 
                 print(
                     "Binance WebSocket connected"
                 )
 
-                feed_heartbeat[
-                    "Binance"
-                ] = time.time()
+                async for message in ws:
 
+                    last_ws_message_ms = now_ms()
 
-                async for raw in ws:
+                    payload = json.loads(message)
 
-                    try:
-
-                        msg = json.loads(
-                            raw
-                        )
-
-                    except Exception:
-                        continue
-
-
-                    k = (
-                        msg
-                        .get("data", {})
-                        .get("k")
+                    data = payload.get(
+                        "data",
+                        payload,
                     )
 
-                    if not k:
+                    if data.get("e") != "kline":
                         continue
 
+                    k = data.get("k", {})
 
-                    feed_heartbeat[
-                        "Binance"
-                    ] = time.time()
+                    symbol = str(
+                        k.get("s", "")
+                    ).upper()
 
-
-                    symbol = k.get("s")
                     tf = k.get("i")
 
-
-                    if not symbol or not tf:
+                    if symbol not in DEFAULT_SYMBOLS:
                         continue
 
-
-                    if (
-                        symbol,
-                        tf
-                    ) not in bars:
+                    if tf not in TIMEFRAMES:
                         continue
-
-
-                    # VERY IMPORTANT:
-                    # Only CLOSED candles.
-                    if not k.get("x"):
-                        continue
-
 
                     candle = {
-
-                        "time":
-                            int(k["t"]),
-
-                        "open":
-                            float(k["o"]),
-
-                        "high":
-                            float(k["h"]),
-
-                        "low":
-                            float(k["l"]),
-
-                        "close":
-                            float(k["c"]),
-
-                        "volume":
-                            float(k["v"]),
+                        "time": int(k["t"]),
+                        "open": float(k["o"]),
+                        "high": float(k["h"]),
+                        "low": float(k["l"]),
+                        "close": float(k["c"]),
+                        "volume": float(k["v"]),
+                        "closed": bool(k["x"]),
                     }
 
+                    key = (symbol, tf)
 
-                    q = bars[
-                        (symbol, tf)
-                    ]
+                    async with locks[key]:
 
-
-                    if (
-                        q
-                        and
-                        q[-1]["time"]
-                        == candle["time"]
-                    ):
-
-                        q[-1] = candle
-
-                    else:
-
-                        q.append(
-                            candle
+                        existing = list(
+                            bars[key]
                         )
 
+                        if (
+                            existing
+                            and existing[-1]["time"]
+                            == candle["time"]
+                        ):
 
-                    latest[
-                        (symbol, tf)
-                    ] = analyze(
-                        symbol,
-                        tf
-                    )
+                            existing[-1] = candle
 
+                        elif (
+                            not existing
+                            or candle["time"]
+                            > existing[-1]["time"]
+                        ):
+
+                            existing.append(candle)
+
+                        else:
+
+                            continue
+
+                        bars[key].clear()
+
+                        bars[key].extend(
+                            existing[-500:]
+                        )
 
         except Exception as exc:
 
+            ws_connected = False
+
+            last_error = str(exc)
+
             print(
-                "Binance WebSocket "
-                f"reconnect: {exc}"
+                f"WebSocket error: {exc}"
             )
 
-            feed_heartbeat[
-                "Binance"
-            ] = 0.0
+        ws_connected = False
 
-            await asyncio.sleep(
-                5
+        await asyncio.sleep(3)
+
+
+# =========================
+# MARKET STRUCTURE
+# =========================
+
+def find_structure(candles):
+
+    if len(candles) < 12:
+
+        return {
+            "bos": False,
+            "choch": False,
+            "direction": "NEUTRAL",
+        }
+
+    recent = candles[-8:]
+
+    previous = (
+        candles[-16:-8]
+        if len(candles) >= 16
+        else candles[:-8]
+    )
+
+    if not previous:
+
+        return {
+            "bos": False,
+            "choch": False,
+            "direction": "NEUTRAL",
+        }
+
+    recent_high = max(
+        x["high"] for x in recent
+    )
+
+    recent_low = min(
+        x["low"] for x in recent
+    )
+
+    prev_high = max(
+        x["high"] for x in previous
+    )
+
+    prev_low = min(
+        x["low"] for x in previous
+    )
+
+    close = candles[-1]["close"]
+
+    bullish_break = close > prev_high
+    bearish_break = close < prev_low
+
+    direction = (
+        "BULLISH"
+        if bullish_break
+        else "BEARISH"
+        if bearish_break
+        else "NEUTRAL"
+    )
+
+    return {
+        "bos": bullish_break or bearish_break,
+        "choch": bullish_break or bearish_break,
+        "direction": direction,
+    }
+
+
+# =========================
+# LIQUIDITY
+# =========================
+
+def find_liquidity(candles):
+
+    if len(candles) < 20:
+
+        return False, "NONE"
+
+    lookback = candles[-12:-2]
+
+    highs = [
+        x["high"]
+        for x in lookback
+    ]
+
+    lows = [
+        x["low"]
+        for x in lookback
+    ]
+
+    last = candles[-1]
+
+    high_level = max(highs)
+    low_level = min(lows)
+
+    tolerance = max(
+        (high_level - low_level) * 0.03,
+        last["close"] * 0.00015,
+    )
+
+    swept_high = (
+        last["high"]
+        > high_level + tolerance
+        and last["close"]
+        < high_level
+    )
+
+    swept_low = (
+        last["low"]
+        < low_level - tolerance
+        and last["close"]
+        > low_level
+    )
+
+    if swept_low:
+
+        return (
+            True,
+            "SELL-SIDE LIQUIDITY GRAB",
+        )
+
+    if swept_high:
+
+        return (
+            True,
+            "BUY-SIDE LIQUIDITY GRAB",
+        )
+
+    return False, "NONE"
+
+
+# =========================
+# FVG
+# =========================
+
+def find_fvg(candles):
+
+    if len(candles) < 5:
+
+        return False, "NONE"
+
+    a = candles[-3]
+    c = candles[-1]
+
+    bullish = c["low"] > a["high"]
+    bearish = c["high"] < a["low"]
+
+    if bullish:
+
+        return True, "BULLISH FVG"
+
+    if bearish:
+
+        return True, "BEARISH FVG"
+
+    return False, "NONE"
+
+
+# =========================
+# MOMENTUM
+# =========================
+
+def momentum_state(candles):
+
+    if len(candles) < 6:
+
+        return "NEUTRAL"
+
+    last = candles[-1]
+    prev = candles[-4]
+
+    move = (
+        last["close"]
+        - prev["close"]
+    )
+
+    rng = max(
+        last["high"] - last["low"],
+        1e-12,
+    )
+
+    if move > rng * 0.25:
+
+        return "BULLISH"
+
+    if move < -rng * 0.25:
+
+        return "BEARISH"
+
+    return "NEUTRAL"
+
+
+# =========================
+# SIGNAL ENGINE
+# =========================
+
+def analyze(candles):
+
+    if len(candles) < 210:
+
+        return {
+            "signal": "NO TRADE",
+            "side": "NONE",
+            "confidence": 0,
+            "reason": (
+                "Need at least 210 closed "
+                f"candles (have {len(candles)})"
+            ),
+            "trend": "NEUTRAL",
+            "entry": None,
+            "stop_loss": None,
+            "tp1": None,
+            "tp2": None,
+            "rr": None,
+            "rsi": None,
+            "atr": None,
+            "smc": {},
+            "confirmations": [],
+        }
+
+    closes = [
+        x["close"]
+        for x in candles
+    ]
+
+    price = closes[-1]
+
+    e50 = ema(
+        closes,
+        50,
+    )
+
+    e200 = ema(
+        closes,
+        200,
+    )
+
+    r = rsi(
+        closes,
+        14,
+    )
+
+    a = atr(
+        candles,
+        14,
+    )
+
+    structure = find_structure(
+        candles
+    )
+
+    liquidity, liquidity_type = find_liquidity(
+        candles
+    )
+
+    fvg, fvg_type = find_fvg(
+        candles
+    )
+
+    momentum = momentum_state(
+        candles
+    )
+
+    bullish_trend = (
+        e50 is not None
+        and e200 is not None
+        and e50 > e200
+    )
+
+    bearish_trend = (
+        e50 is not None
+        and e200 is not None
+        and e50 < e200
+    )
+
+    bullish_rsi = (
+        r is not None
+        and 50 <= r <= 72
+    )
+
+    bearish_rsi = (
+        r is not None
+        and 28 <= r < 50
+    )
+
+    buy_score = 0
+    sell_score = 0
+
+    buy_reasons = []
+    sell_reasons = []
+
+    # EMA
+    if bullish_trend:
+
+        buy_score += 2
+
+        buy_reasons.append(
+            "EMA50 > EMA200"
+        )
+
+    if bearish_trend:
+
+        sell_score += 2
+
+        sell_reasons.append(
+            "EMA50 < EMA200"
+        )
+
+    # RSI
+    if bullish_rsi:
+
+        buy_score += 1
+
+        buy_reasons.append(
+            "RSI bullish"
+        )
+
+    if bearish_rsi:
+
+        sell_score += 1
+
+        sell_reasons.append(
+            "RSI bearish"
+        )
+
+    # Structure
+    if structure["direction"] == "BULLISH":
+
+        buy_score += 2
+
+        buy_reasons.append(
+            "BOS/CHoCH bullish"
+        )
+
+    elif structure["direction"] == "BEARISH":
+
+        sell_score += 2
+
+        sell_reasons.append(
+            "BOS/CHoCH bearish"
+        )
+
+    # Liquidity
+    if (
+        liquidity
+        and liquidity_type
+        == "SELL-SIDE LIQUIDITY GRAB"
+    ):
+
+        buy_score += 1
+
+        buy_reasons.append(
+            "Sell-side liquidity grab"
+        )
+
+    elif (
+        liquidity
+        and liquidity_type
+        == "BUY-SIDE LIQUIDITY GRAB"
+    ):
+
+        sell_score += 1
+
+        sell_reasons.append(
+            "Buy-side liquidity grab"
+        )
+
+    # FVG
+    if (
+        fvg
+        and fvg_type
+        == "BULLISH FVG"
+    ):
+
+        buy_score += 1
+
+        buy_reasons.append(
+            "Bullish FVG"
+        )
+
+    elif (
+        fvg
+        and fvg_type
+        == "BEARISH FVG"
+    ):
+
+        sell_score += 1
+
+        sell_reasons.append(
+            "Bearish FVG"
+        )
+
+    # Momentum
+    if momentum == "BULLISH":
+
+        buy_score += 1
+
+        buy_reasons.append(
+            "Bullish momentum"
+        )
+
+    elif momentum == "BEARISH":
+
+        sell_score += 1
+
+        sell_reasons.append(
+            "Bearish momentum"
+        )
+
+    side = "NONE"
+    signal = "NO TRADE"
+    confidence = 0
+    reasons = []
+
+    # BUY
+    if (
+        buy_score >= 6
+        and bullish_trend
+        and momentum == "BULLISH"
+    ):
+
+        side = "BUY"
+        signal = "BUY"
+
+        confidence = min(
+            96,
+            58 + buy_score * 5,
+        )
+
+        reasons = buy_reasons
+
+    # SELL
+    elif (
+        sell_score >= 6
+        and bearish_trend
+        and momentum == "BEARISH"
+    ):
+
+        side = "SELL"
+        signal = "SELL"
+
+        confidence = min(
+            96,
+            58 + sell_score * 5,
+        )
+
+        reasons = sell_reasons
+
+    else:
+
+        best = max(
+            buy_score,
+            sell_score,
+        )
+
+        confidence = min(
+            79,
+            45 + best * 4,
+        )
+
+        reasons = (
+            buy_reasons
+            if buy_score >= sell_score
+            else sell_reasons
+        )
+
+    entry = (
+        price
+        if side != "NONE"
+        else None
+    )
+
+    stop = None
+    tp1 = None
+    tp2 = None
+    rr = None
+
+    if side != "NONE" and a:
+
+        risk = max(
+            a * 1.25,
+            price * 0.001,
+        )
+
+        if side == "BUY":
+
+            stop = price - risk
+
+            tp1 = price + risk * 1.5
+
+            tp2 = price + risk * 2.2
+
+        else:
+
+            stop = price + risk
+
+            tp1 = price - risk * 1.5
+
+            tp2 = price - risk * 2.2
+
+        rr = 1.5
+
+    confirmations = [
+
+        (
+            "EMA 50/200 CONFIRMED"
+            if (
+                bullish_trend
+                or bearish_trend
             )
+            else
+            "EMA 50/200 —"
+        ),
+
+        (
+            "RSI 14 CONFIRMED"
+            if (
+                (
+                    bullish_rsi
+                    and bullish_trend
+                )
+                or
+                (
+                    bearish_rsi
+                    and bearish_trend
+                )
+            )
+            else
+            "RSI 14 —"
+        ),
+
+        (
+            "BOS / CHoCH CONFIRMED"
+            if structure["bos"]
+            else
+            "BOS / CHoCH —"
+        ),
+
+        (
+            "Liquidity Grab CONFIRMED"
+            if liquidity
+            else
+            "Liquidity Grab —"
+        ),
+
+        (
+            "FVG CONFIRMED"
+            if fvg
+            else
+            "FVG —"
+        ),
+
+        (
+            "Momentum CONFIRMED"
+            if momentum != "NEUTRAL"
+            else
+            "Momentum —"
+        ),
+    ]
+
+    return {
+
+        "signal": signal,
+
+        "side": side,
+
+        "confidence": int(
+            confidence
+        ),
+
+        "reason": (
+            " + ".join(reasons)
+            if reasons
+            else
+            "No complete setup"
+        ),
+
+        "trend": (
+            "BULLISH"
+            if bullish_trend
+            else
+            "BEARISH"
+            if bearish_trend
+            else
+            "NEUTRAL"
+        ),
+
+        "entry": safe_round(
+            entry,
+            2,
+        ),
+
+        "stop_loss": safe_round(
+            stop,
+            2,
+        ),
+
+        "tp1": safe_round(
+            tp1,
+            2,
+        ),
+
+        "tp2": safe_round(
+            tp2,
+            2,
+        ),
+
+        "rr": rr,
+
+        "rsi": safe_round(
+            r,
+            2,
+        ),
+
+        "atr": safe_round(
+            a,
+            4,
+        ),
+
+        "smc": {
+
+            "liquidity": liquidity,
+
+            "liquidity_type":
+                liquidity_type,
+
+            "bos":
+                structure["bos"],
+
+            "choch":
+                structure["choch"],
+
+            "fvg":
+                fvg,
+
+            "fvg_type":
+                fvg_type,
+
+            "momentum":
+                momentum,
+        },
+
+        "confirmations":
+            confirmations,
+
+        "ema50":
+            safe_round(
+                e50,
+                2,
+            ),
+
+        "ema200":
+            safe_round(
+                e200,
+                2,
+            ),
+    }
 
 
-# ============================================================
-# STARTUP
-# ============================================================
+# =========================
+# PUBLIC CANDLE
+# =========================
 
-@app.on_event("startup")
-async def startup():
+def public_candle(c):
 
-    print(
-        "Starting AI Live Signal Bot V22..."
-    )
-
-    # Live WebSocket immediately.
-    background_tasks.append(
-        asyncio.create_task(
-            binance_stream()
-        )
-    )
-
-    # Historical archive in background.
-    background_tasks.append(
-        asyncio.create_task(
-            load_history()
-        )
-    )
+    return {
+        "time": c["time"],
+        "open": c["open"],
+        "high": c["high"],
+        "low": c["low"],
+        "close": c["close"],
+        "volume": c["volume"],
+    }
 
 
-# ============================================================
-# SHUTDOWN
-# ============================================================
-
-@app.on_event("shutdown")
-async def shutdown():
-
-    for task in background_tasks:
-        task.cancel()
-
-    if background_tasks:
-
-        await asyncio.gather(
-            *background_tasks,
-            return_exceptions=True
-        )
-
-
-# ============================================================
+# =========================
 # HOME
-# ============================================================
+# =========================
 
 @app.get("/")
-async def home():
+async def root():
 
     if INDEX.exists():
 
         return FileResponse(
-            INDEX,
-            media_type="text/html"
+            INDEX
         )
 
-    return JSONResponse({
-
-        "status": "online",
-
-        "service":
-            "AI Live Signal Bot V22",
-
-        "message":
-            "index.html is missing."
-
-    })
+    return JSONResponse(
+        {
+            "status": "ok",
+            "app": APP_TITLE,
+        }
+    )
 
 
-# ============================================================
+# =========================
 # HEALTH
-# ============================================================
+# =========================
 
 @app.get("/api/health")
 async def health():
 
-    age = (
-
-        time.time()
-        - feed_heartbeat["Binance"]
-
-        if feed_heartbeat["Binance"]
-        else None
-    )
-
-
     return {
 
-        "status": "ok",
+        "ok": True,
 
-        "service":
-            "AI Live Signal Bot V22",
+        "app":
+            APP_TITLE,
 
-        "binance":
-            (
-                "LIVE"
-                if (
-                    age is not None
-                    and age < 30
-                )
-                else "WAITING"
-            ),
+        "binance_rest":
+            BINANCE_REST,
 
-        "seconds_since_feed":
-            age,
+        "websocket_connected":
+            ws_connected,
 
-        "auto_trade":
-            False,
+        "last_ws_message_ms":
+            last_ws_message_ms,
 
-        "btc_1m_closed_candles":
-            len(
-                bars[
-                    ("BTCUSDT", "1m")
-                ]
-            ),
-
-        "timestamp":
-            int(time.time())
+        "last_error":
+            last_error,
     }
 
 
-# ============================================================
-# LIVE STATUS
-# ============================================================
-
-@app.get("/api/live-status")
-async def live_status():
-
-    age = (
-
-        time.time()
-        - feed_heartbeat["Binance"]
-
-        if feed_heartbeat["Binance"]
-        else None
-    )
-
-
-    return {
-
-        "Binance": {
-
-            "status":
-                (
-                    "LIVE"
-                    if (
-                        age is not None
-                        and age < 30
-                    )
-                    else "WAITING"
-                ),
-
-            "seconds_since_data":
-                age,
-
-            "closed_candles":
-                len(
-                    bars[
-                        ("BTCUSDT", "1m")
-                    ]
-                ),
-        }
-    }
-
-
-# ============================================================
+# =========================
 # SOURCES
-# ============================================================
+# =========================
 
 @app.get("/api/sources")
 async def sources():
-
-    names = DEFAULT_SOURCES
-
-
-    if isinstance(
-        PROVIDERS,
-        list
-    ):
-
-        names = [
-
-            p.get(
-                "name",
-                str(p)
-            )
-
-            if isinstance(
-                p,
-                dict
-            )
-
-            else str(p)
-
-            for p in PROVIDERS
-        ]
-
-
-    elif isinstance(
-        PROVIDERS,
-        dict
-    ):
-
-        names = (
-            list(
-                PROVIDERS.keys()
-            )
-            or DEFAULT_SOURCES
-        )
-
 
     return {
 
         "sources": [
 
             {
-
-                "name": name,
-
+                "id": "binance",
+                "name": "Binance",
+                "type": "crypto",
+                "live": True,
                 "status":
-
                     (
                         "LIVE"
-
-                        if (
-                            name
-                            == "Binance"
-                            and
-                            feed_heartbeat[
-                                "Binance"
-                            ]
-                        )
-
+                        if ws_connected
                         else
-                        "API KEY / CONNECTOR REQUIRED"
-                    )
+                        "CONNECTING"
+                    ),
+            },
 
-            }
+            {
+                "id": "forex",
+                "name": "Forex",
+                "type": "forex",
+                "live": False,
+                "status":
+                    "NOT_CONNECTED",
+            },
 
-            for name in names
+            {
+                "id": "metals",
+                "name": "Metals",
+                "type": "metals",
+                "live": False,
+                "status":
+                    "NOT_CONNECTED",
+            },
         ]
     }
 
 
-# ============================================================
+# =========================
 # INSTRUMENTS
-# ============================================================
+# =========================
 
 @app.get("/api/instruments")
 async def instruments():
 
     return {
 
-        "symbols":
-            SYMBOLS,
+        "crypto":
+            DEFAULT_SYMBOLS,
 
-        "timeframes":
-            INTERVALS,
+        "forex": [
+            "EURUSD",
+            "GBPUSD",
+            "USDJPY",
+            "AUDUSD",
+            "USDCAD",
+        ],
 
-        "registry":
-            INSTRUMENTS
+        "metals": [
+            "XAUUSD",
+            "XAGUSD",
+        ],
     }
 
 
-# ============================================================
-# CANDLES
-# ============================================================
+# =========================
+# LIVE STATUS
+# =========================
 
-@app.get(
-    "/api/candles/{symbol}/{timeframe}"
-)
+@app.get("/api/live-status")
+async def live_status():
+
+    counts = {}
+
+    for tf in TIMEFRAMES:
+
+        counts[tf] = len(
+            bars[
+                ("BTCUSDT", tf)
+            ]
+        )
+
+    return {
+
+        "source":
+            "Binance",
+
+        "live":
+            ws_connected,
+
+        "websocket":
+            ws_connected,
+
+        "last_message_ms":
+            last_ws_message_ms,
+
+        "last_error":
+            last_error,
+
+        "history":
+            counts,
+    }
+
+
+# =========================
+# CANDLES API
+# =========================
+
+@app.get("/api/candles/{symbol}/{tf}")
 async def candles(
     symbol: str,
-    timeframe: str
+    tf: str,
 ):
 
-    key = (
-        symbol.upper(),
-        timeframe
-    )
+    symbol = symbol.upper()
 
+    if tf not in TIMEFRAMES:
+
+        return JSONResponse(
+            {
+                "error":
+                    "Unsupported timeframe"
+            },
+            status_code=400,
+        )
+
+    key = (
+        symbol,
+        tf,
+    )
 
     if key not in bars:
 
         return JSONResponse(
-
             {
                 "error":
-                    "Unsupported "
-                    "symbol/timeframe"
+                    "Unsupported symbol"
             },
-
-            status_code=400
+            status_code=404,
         )
 
+    async with locks[key]:
+
+        data = [
+            public_candle(x)
+            for x in list(
+                bars[key]
+            )[-500:]
+        ]
 
     return {
 
         "symbol":
-            key[0],
+            symbol,
 
         "timeframe":
-            key[1],
+            tf,
+
+        "closed_only":
+            True,
+
+        "count":
+            len(data),
 
         "candles":
-            list(
-                bars[key]
-            )
+            data,
     }
 
 
-# ============================================================
-# SIGNAL
-# ============================================================
+# =========================
+# SIGNAL API
+# =========================
 
-@app.get(
-    "/api/signal/{symbol}/{timeframe}"
-)
+@app.get("/api/signal/{symbol}/{tf}")
 async def signal(
     symbol: str,
-    timeframe: str
+    tf: str,
 ):
 
-    key = (
-        symbol.upper(),
-        timeframe
-    )
+    symbol = symbol.upper()
 
-
-    if key not in bars:
+    if tf not in TIMEFRAMES:
 
         return JSONResponse(
-
             {
                 "error":
-                    "Unsupported "
-                    "symbol/timeframe"
+                    "Unsupported timeframe"
             },
-
-            status_code=400
+            status_code=400,
         )
-
-
-    return latest.get(
-        key,
-        analyze(*key)
-    )
-
-
-# ============================================================
-# MANUAL REFRESH
-# ============================================================
-
-@app.get(
-    "/api/refresh/{symbol}/{timeframe}"
-)
-async def refresh(
-    symbol: str,
-    timeframe: str
-):
 
     key = (
-        symbol.upper(),
-        timeframe
-    )
-
-
-    if key not in bars:
-
-        return JSONResponse(
-
-            {
-                "error":
-                    "Unsupported "
-                    "symbol/timeframe"
-            },
-
-            status_code=400
-        )
-
-
-    count = await load_one_history(
-        key[0],
-        key[1]
-    )
-
-
-    return {
-
-        "symbol":
-            key[0],
-
-        "timeframe":
-            key[1],
-
-        "closed_candles":
-            count,
-
-        "signal":
-            latest.get(
-                key,
-                analyze(*key)
-            )
-    }
-
-
-# ============================================================
-# LEGACY ROUTES
-# ============================================================
-
-@app.get("/health")
-async def legacy_health():
-    return await health()
-
-
-@app.get("/sources")
-async def legacy_sources():
-    return await sources()
-
-
-@app.get(
-    "/signal/{symbol}/{interval}"
-)
-async def legacy_signal(
-    symbol: str,
-    interval: str
-):
-    return await signal(
         symbol,
-        interval
+        tf,
+    )
+
+    if key not in bars:
+
+        return JSONResponse(
+            {
+                "error":
+                    "Unsupported symbol"
+            },
+            status_code=404,
+        )
+
+    async with locks[key]:
+
+        data = list(
+            bars[key]
+        )
+
+    result = analyze(data)
+
+    result.update(
+
+        {
+            "symbol":
+                symbol,
+
+            "timeframe":
+                tf,
+
+            "candle_count":
+                len(data),
+
+            "generated_at":
+                now_ms(),
+
+            "data_source":
+                "Binance LIVE",
+
+            "auto_trade":
+                False,
+        }
+    )
+
+    return result
+
+
+# =========================
+# STARTUP
+# =========================
+
+@app.on_event("startup")
+async def startup():
+
+    global ws_task
+    global history_task
+
+    history_task = asyncio.create_task(
+        load_initial_history()
+    )
+
+    await asyncio.sleep(0.2)
+
+    ws_task = asyncio.create_task(
+        websocket_loop()
+    )
+
+
+# =========================
+# SHUTDOWN
+# =========================
+
+@app.on_event("shutdown")
+async def shutdown():
+
+    for task in (
+        ws_task,
+        history_task,
+    ):
+
+        if task:
+
+            task.cancel()
+
+    await asyncio.gather(
+
+        *(
+            task
+            for task in (
+                ws_task,
+                history_task,
+            )
+            if task
+        ),
+
+        return_exceptions=True,
     )
