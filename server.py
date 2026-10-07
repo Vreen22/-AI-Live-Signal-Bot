@@ -16,11 +16,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.get("/")
 async def home():
     return FileResponse(INDEX)
-
 
 @app.get("/api/health")
 async def health():
@@ -30,7 +28,6 @@ async def health():
         "architecture": "Browser -> Binance public market data",
         "auto_trade": False,
     }
-
 
 @app.get("/api/sources")
 async def sources():
@@ -45,7 +42,6 @@ async def sources():
             }
         ]
     }
-
 
 @app.get("/api/instruments")
 async def instruments():
@@ -74,3 +70,4 @@ async def instruments():
             "XAGUSD",
         ],
     }
+}
