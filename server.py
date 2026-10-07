@@ -198,14 +198,13 @@ def detect_momentum(last, prev):
     return None
 
 
-def recent_swing_levels(data, lookback=30, pivot=2):
-    """Return recent confirmed swing high/low from CLOSED candles only."""
+def recent_swing_levels(data, lookback=40, pivot=2):
+    """Return the latest confirmed swing high/low using CLOSED candles only."""
     if len(data) < (pivot * 2 + 5):
         return None, None
 
     window = data[-lookback:] if len(data) > lookback else data
-    swing_highs = []
-    swing_lows = []
+    highs, lows = [], []
 
     for i in range(pivot, len(window) - pivot):
         h = window[i]["high"]
@@ -213,288 +212,132 @@ def recent_swing_levels(data, lookback=30, pivot=2):
         left = window[i-pivot:i]
         right = window[i+1:i+pivot+1]
         if all(h > x["high"] for x in left + right):
-            swing_highs.append(h)
+            highs.append(h)
         if all(l < x["low"] for x in left + right):
-            swing_lows.append(l)
+            lows.append(l)
 
-    return (swing_highs[-1] if swing_highs else None,
-            swing_lows[-1] if swing_lows else None)
+    return (highs[-1] if highs else None, lows[-1] if lows else None)
 
 
 def analyze(symbol, tf):
     data = list(bars.get((symbol, tf), []))
 
-    # EMA 50/200 needs at least 200 CLOSED candles.
     if len(data) < 200:
         return {
-            "symbol": symbol,
-            "timeframe": tf,
-            "signal": "NO TRADE",
-            "signal_strength": "WAITING",
-            "confidence": 0,
+            "symbol": symbol, "timeframe": tf, "signal": "NO TRADE",
+            "signal_strength": "WAITING", "confidence": 0,
             "reason": f"Waiting for 200 closed candles ({len(data)}/200)",
-            "candles": len(data),
-            "source": "Binance",
-            "timestamp": int(time.time()),
-            "auto_trade": False,
-            "entry": None,
-            "sl": None,
-            "tp1": None,
-            "tp2": None,
+            "candles": len(data), "source": "Binance",
+            "timestamp": int(time.time()), "auto_trade": False,
+            "entry": None, "sl": None, "tp1": None, "tp2": None,
             "price": data[-1]["close"] if data else None,
-            "ema9": None,
-            "ema21": None,
-            "ema50": None,
-            "ema200": None,
-            "rsi14": None,
-            "atr14": None,
-            "swing_high": None,
-            "swing_low": None,
-            "risk": None,
-            "rr_tp1": None,
-            "rr_tp2": None,
-            "confirmations": [],
-            "smc": {
-                "liquidity_grab": "WAITING",
-                "bos_choch": "WAITING",
-                "fvg": "WAITING",
-                "ema_50_200": "WAITING",
-                "rsi14": "WAITING",
-                "momentum": "WAITING",
-            },
+            "ema9": None, "ema21": None, "ema50": None, "ema200": None,
+            "rsi14": None, "atr14": None, "swing_high": None,
+            "swing_low": None, "risk": None, "rr_tp1": None, "rr_tp2": None,
+            "core_confirmations": 0, "confirmations": [],
+            "smc": {"liquidity_grab":"WAITING", "bos_choch":"WAITING",
+                    "fvg":"WAITING", "ema_50_200":"WAITING",
+                    "rsi14":"WAITING", "momentum":"WAITING"}
         }
 
     closes = [x["close"] for x in data]
-    e9 = ema(closes, 9)
-    e21 = ema(closes, 21)
-    e50 = ema(closes, 50)
-    e200 = ema(closes, 200)
-    r = rsi(closes, 14)
-    a = atr(data, 14)
-
-    last = data[-1]
-    prev = data[-2]
+    e9, e21 = ema(closes, 9), ema(closes, 21)
+    e50, e200 = ema(closes, 50), ema(closes, 200)
+    r, a = rsi(closes, 14), atr(data, 14)
+    last, prev = data[-1], data[-2]
 
     liquidity = detect_liquidity(data)
     bos = detect_bos_choch(data)
     fvg = detect_fvg(data)
     momentum = detect_momentum(last, prev)
-
-    buy_score = 0
-    sell_score = 0
+    buy_score = sell_score = 0
     confirmations = []
 
-    # ------------------------------------------------------------
-    # 1) EMA TREND — mandatory directional filter
-    # ------------------------------------------------------------
     if e50 > e200:
-        ema_state = "BULLISH"
-        buy_score += 2
-        confirmations.append("EMA 50 > EMA 200")
+        ema_state = "BULLISH"; buy_score += 2; confirmations.append("EMA 50 > EMA 200")
     elif e50 < e200:
-        ema_state = "BEARISH"
-        sell_score += 2
-        confirmations.append("EMA 50 < EMA 200")
+        ema_state = "BEARISH"; sell_score += 2; confirmations.append("EMA 50 < EMA 200")
     else:
         ema_state = "NEUTRAL"
 
-    # Fast EMA is a small bonus only.
-    if e9 > e21:
-        buy_score += 1
-    elif e9 < e21:
-        sell_score += 1
+    if e9 > e21: buy_score += 1
+    elif e9 < e21: sell_score += 1
 
-    # ------------------------------------------------------------
-    # 2) RSI — direction-aware and not falsely marked neutral at 70+
-    # ------------------------------------------------------------
     if 55 <= r <= 75:
-        rsi_state = "BULLISH"
-        buy_score += 1
-        confirmations.append("RSI bullish")
+        rsi_state = "BULLISH"; buy_score += 1; confirmations.append("RSI bullish")
     elif 25 <= r <= 45:
-        rsi_state = "BEARISH"
-        sell_score += 1
-        confirmations.append("RSI bearish")
+        rsi_state = "BEARISH"; sell_score += 1; confirmations.append("RSI bearish")
     elif r > 75:
-        # Very strong momentum, but overbought. It is NOT a fresh
-        # confirmation by itself; require structure/momentum to agree.
         rsi_state = "BULLISH_OVERBOUGHT"
-        if e50 > e200:
-            buy_score += 1
+        if e50 > e200: buy_score += 1
     elif r < 25:
         rsi_state = "BEARISH_OVERSOLD"
-        if e50 < e200:
-            sell_score += 1
+        if e50 < e200: sell_score += 1
     else:
         rsi_state = "NEUTRAL"
 
-    # ------------------------------------------------------------
-    # 3) BOS / CHoCH — mandatory structure confirmation
-    # ------------------------------------------------------------
-    if bos == "bullish":
-        buy_score += 2
-        confirmations.append("BOS/CHoCH bullish")
-    elif bos == "bearish":
-        sell_score += 2
-        confirmations.append("BOS/CHoCH bearish")
+    if bos == "bullish": buy_score += 2; confirmations.append("BOS/CHoCH bullish")
+    elif bos == "bearish": sell_score += 2; confirmations.append("BOS/CHoCH bearish")
+    if liquidity == "bullish": buy_score += 2; confirmations.append("Liquidity grab bullish")
+    elif liquidity == "bearish": sell_score += 2; confirmations.append("Liquidity grab bearish")
+    if fvg == "bullish": buy_score += 1; confirmations.append("FVG bullish")
+    elif fvg == "bearish": sell_score += 1; confirmations.append("FVG bearish")
+    if momentum == "bullish": buy_score += 1; confirmations.append("Momentum bullish")
+    elif momentum == "bearish": sell_score += 1; confirmations.append("Momentum bearish")
 
-    # ------------------------------------------------------------
-    # 4) Liquidity grab — bonus confirmation
-    # ------------------------------------------------------------
-    if liquidity == "bullish":
-        buy_score += 2
-        confirmations.append("Liquidity grab bullish")
-    elif liquidity == "bearish":
-        sell_score += 2
-        confirmations.append("Liquidity grab bearish")
-
-    # ------------------------------------------------------------
-    # 5) FVG — mandatory imbalance confirmation for a trade
-    # ------------------------------------------------------------
-    if fvg == "bullish":
-        buy_score += 1
-        confirmations.append("FVG bullish")
-    elif fvg == "bearish":
-        sell_score += 1
-        confirmations.append("FVG bearish")
-
-    # ------------------------------------------------------------
-    # 6) Momentum — mandatory directional confirmation
-    # ------------------------------------------------------------
-    if momentum == "bullish":
-        buy_score += 1
-        confirmations.append("Momentum bullish")
-    elif momentum == "bearish":
-        sell_score += 1
-        confirmations.append("Momentum bearish")
-
-    # ------------------------------------------------------------
-    # TRADE RULE
-    # A BUY/SELL is only allowed when the important confirmations
-    # actually agree. This prevents the old situation where the UI
-    # showed BUY while RSI/Liquidity were still neutral/waiting.
-    # ------------------------------------------------------------
-    bullish_core = (
-        e50 > e200
-        and bos == "bullish"
-        and fvg == "bullish"
-        and momentum == "bullish"
-        and rsi_state in ("BULLISH", "BULLISH_OVERBOUGHT")
-    )
-
-    bearish_core = (
-        e50 < e200
-        and bos == "bearish"
-        and fvg == "bearish"
-        and momentum == "bearish"
-        and rsi_state in ("BEARISH", "BEARISH_OVERSOLD")
-    )
+    bullish_core = (e50 > e200 and bos == "bullish" and fvg == "bullish" and
+                    momentum == "bullish" and rsi_state in ("BULLISH", "BULLISH_OVERBOUGHT"))
+    bearish_core = (e50 < e200 and bos == "bearish" and fvg == "bearish" and
+                    momentum == "bearish" and rsi_state in ("BEARISH", "BEARISH_OVERSOLD"))
 
     if bullish_core and buy_score > sell_score:
-        signal = "BUY"
-        score = buy_score
-        core_count = 5
+        signal, score = "BUY", buy_score
         signal_strength = "STRONG" if liquidity == "bullish" else "CONFIRMED"
-    elif bearish_core and sell_score > buy_score:
-        signal = "SELL"
-        score = sell_score
         core_count = 5
+    elif bearish_core and sell_score > buy_score:
+        signal, score = "SELL", sell_score
         signal_strength = "STRONG" if liquidity == "bearish" else "CONFIRMED"
+        core_count = 5
     else:
-        signal = "NO TRADE"
-        score = max(buy_score, sell_score)
-        core_count = 0
-        signal_strength = "WAIT"
+        signal, score = "NO TRADE", max(buy_score, sell_score)
+        signal_strength, core_count = "WAIT", 0
 
-    # Confidence is an agreement score, not a probability or guarantee.
-    # A confirmed 5-part setup starts at 80%; liquidity can increase it.
-    if signal == "BUY" or signal == "SELL":
+    if signal in ("BUY", "SELL"):
         confidence = 80
-        if liquidity == ("bullish" if signal == "BUY" else "bearish"):
-            confidence += 8
-        if (signal == "BUY" and rsi_state == "BULLISH") or (signal == "SELL" and rsi_state == "BEARISH"):
-            confidence += 4
-        if e9 > e21 and signal == "BUY":
-            confidence += 2
-        if e9 < e21 and signal == "SELL":
-            confidence += 2
+        if liquidity == ("bullish" if signal == "BUY" else "bearish"): confidence += 8
+        if (signal == "BUY" and rsi_state == "BULLISH") or (signal == "SELL" and rsi_state == "BEARISH"): confidence += 4
+        if signal == "BUY" and e9 > e21: confidence += 2
+        if signal == "SELL" and e9 < e21: confidence += 2
         confidence = min(95, confidence)
     else:
-        # Show useful confidence while explicitly refusing a trade.
         confidence = min(79, max(0, int(45 + score * 5)))
 
     entry = last["close"]
-    sl = tp1 = tp2 = None
-    risk = None
-    rr_tp1 = rr_tp2 = None
-    swing_high, swing_low = recent_swing_levels(data, lookback=40, pivot=2)
+    sl = tp1 = tp2 = risk = rr_tp1 = rr_tp2 = None
+    swing_high, swing_low = recent_swing_levels(data)
 
-    # ------------------------------------------------------------
-    # STRUCTURE + ATR RISK MANAGEMENT
-    # BUY: stop below swing low + ATR buffer, with at least 1 ATR room.
-    # SELL: stop above swing high + ATR buffer, with at least 1 ATR room.
-    # TP1 = 1R, TP2 = 2R.
-    # ------------------------------------------------------------
     if a and a > 0 and signal == "BUY":
-        atr_floor = entry - 1.0 * a
-        structure_sl = (swing_low - 0.25 * a) if swing_low is not None else atr_floor
-        sl = min(structure_sl, atr_floor)
-        risk = entry - sl
-        if risk > 0:
-            tp1 = entry + risk
-            tp2 = entry + (2.0 * risk)
-            rr_tp1 = 1.0
-            rr_tp2 = 2.0
-
+        atr_floor = entry - a
+        structure_sl = swing_low - 0.25*a if swing_low is not None else atr_floor
+        sl = min(structure_sl, atr_floor); risk = entry - sl
+        if risk > 0: tp1, tp2, rr_tp1, rr_tp2 = entry+risk, entry+2*risk, 1.0, 2.0
     elif a and a > 0 and signal == "SELL":
-        atr_ceiling = entry + 1.0 * a
-        structure_sl = (swing_high + 0.25 * a) if swing_high is not None else atr_ceiling
-        sl = max(structure_sl, atr_ceiling)
-        risk = sl - entry
-        if risk > 0:
-            tp1 = entry - risk
-            tp2 = entry - (2.0 * risk)
-            rr_tp1 = 1.0
-            rr_tp2 = 2.0
+        atr_ceiling = entry + a
+        structure_sl = swing_high + 0.25*a if swing_high is not None else atr_ceiling
+        sl = max(structure_sl, atr_ceiling); risk = sl-entry
+        if risk > 0: tp1, tp2, rr_tp1, rr_tp2 = entry-risk, entry-2*risk, 1.0, 2.0
 
-    # Make the displayed SMC states match the actual signal logic.
     return {
-        "symbol": symbol,
-        "timeframe": tf,
-        "signal": signal,
-        "signal_strength": signal_strength,
-        "confidence": confidence,
-        "reason": " + ".join(confirmations[-6:]) if confirmations else "No sufficient confirmation",
-        "entry": entry,
-        "sl": sl,
-        "tp1": tp1,
-        "tp2": tp2,
-        "price": entry,
-        "ema9": e9,
-        "ema21": e21,
-        "ema50": e50,
-        "ema200": e200,
-        "rsi14": r,
-        "atr14": a,
-        "swing_high": swing_high,
-        "swing_low": swing_low,
-        "risk": risk,
-        "rr_tp1": rr_tp1,
-        "rr_tp2": rr_tp2,
-        "core_confirmations": core_count,
-        "confirmations": confirmations,
-        "smc": {
-            "liquidity_grab": liquidity.upper() if liquidity else "NONE",
-            "bos_choch": bos.upper() if bos else "NONE",
-            "fvg": fvg.upper() if fvg else "NONE",
-            "ema_50_200": ema_state,
-            "rsi14": rsi_state,
-            "momentum": momentum.upper() if momentum else "NEUTRAL",
-        },
-        "auto_trade": False,
-        "source": "Binance",
-        "candles": len(data),
-        "timestamp": int(time.time()),
+        "symbol":symbol, "timeframe":tf, "signal":signal, "signal_strength":signal_strength,
+        "confidence":confidence, "reason":" + ".join(confirmations[-6:]) if confirmations else "No sufficient confirmation",
+        "entry":entry, "sl":sl, "tp1":tp1, "tp2":tp2, "price":entry,
+        "ema9":e9, "ema21":e21, "ema50":e50, "ema200":e200, "rsi14":r, "atr14":a,
+        "swing_high":swing_high, "swing_low":swing_low, "risk":risk, "rr_tp1":rr_tp1, "rr_tp2":rr_tp2,
+        "core_confirmations":core_count, "confirmations":confirmations,
+        "smc":{"liquidity_grab":liquidity.upper() if liquidity else "NONE",
+              "bos_choch":bos.upper() if bos else "NONE", "fvg":fvg.upper() if fvg else "NONE",
+              "ema_50_200":ema_state, "rsi14":rsi_state, "momentum":momentum.upper() if momentum else "NEUTRAL"},
+        "auto_trade":False, "source":"Binance", "candles":len(data), "timestamp":int(time.time())
     }
 
 
@@ -608,120 +451,42 @@ def fetch_binance(symbol, interval, limit=300):
 
 
 async def fetch_binance_ws_history(symbol, interval, limit=300):
-    """
-    Bootstrap historical klines through Binance's WebSocket API.
-
-    This is deliberately used before REST because Render/shared hosting IPs
-    can receive HTTP 418/429 from Binance REST. The normal market WebSocket
-    does NOT provide historical candles, so the WebSocket API is used for the
-    initial 300-candle snapshot.
-    """
     url = "wss://ws-api.binance.com:443/ws-api/v3"
-    request_id = f"history-{symbol}-{interval}-{int(time.time() * 1000)}"
-
-    async with websockets.connect(
-        url,
-        ping_interval=20,
-        ping_timeout=20,
-        close_timeout=10,
-        max_size=2**20,
-    ) as ws:
-        await ws.send(json.dumps({
-            "id": request_id,
-            "method": "klines",
-            "params": {
-                "symbol": symbol,
-                "interval": interval,
-                "limit": min(int(limit), 1000),
-            },
-        }))
-
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
-            raw = await asyncio.wait_for(
-                ws.recv(),
-                timeout=max(1.0, deadline - time.monotonic()),
-            )
-            msg = json.loads(raw)
-
-            if msg.get("id") != request_id:
-                continue
-
-            if msg.get("status") != 200:
-                raise RuntimeError(
-                    f"Binance WS API error: {msg.get('error', msg)}"
-                )
-
-            raw_klines = msg.get("result") or []
-            result = []
-
-            for x in raw_klines:
-                if not isinstance(x, list) or len(x) < 6:
-                    continue
-                result.append({
-                    "time": int(x[0]),
-                    "open": float(x[1]),
-                    "high": float(x[2]),
-                    "low": float(x[3]),
-                    "close": float(x[4]),
-                    "volume": float(x[5]),
-                })
-
-            if not result:
-                raise RuntimeError("Binance WS API returned no klines")
-
+    request_id = f"history-{symbol}-{interval}-{int(time.time()*1000)}"
+    async with websockets.connect(url, ping_interval=20, ping_timeout=20, close_timeout=10, max_size=2**20) as ws:
+        await ws.send(json.dumps({"id":request_id,"method":"klines","params":{"symbol":symbol,"interval":interval,"limit":min(int(limit),1000)}}))
+        deadline=time.monotonic()+20
+        while time.monotonic()<deadline:
+            raw=await asyncio.wait_for(ws.recv(), timeout=max(1.0,deadline-time.monotonic()))
+            msg=json.loads(raw)
+            if msg.get("id")!=request_id: continue
+            if msg.get("status")!=200: raise RuntimeError(f"Binance WS API error: {msg.get('error',msg)}")
+            result=[]
+            for x in msg.get("result") or []:
+                if isinstance(x,list) and len(x)>=6:
+                    result.append({"time":int(x[0]),"open":float(x[1]),"high":float(x[2]),"low":float(x[3]),"close":float(x[4]),"volume":float(x[5])})
+            if not result: raise RuntimeError("Binance WS API returned no klines")
             return result
-
     raise RuntimeError("Timed out waiting for Binance WS API history")
 
 
 async def load_one_history(symbol, tf):
-    # WebSocket API first: avoids Render shared-IP REST 418/429 problems.
     try:
-        data = await fetch_binance_ws_history(symbol, tf, 300)
-
-        # The last kline may still be open. Keep CLOSED candles only.
-        closed = data[:-1] if len(data) > 1 else []
-
-        q = bars[(symbol, tf)]
-        q.clear()
-        q.extend(closed)
-
-        if q:
-            latest[(symbol, tf)] = analyze(symbol, tf)
-
-        print(
-            f"Loaded {symbol} {tf} via Binance WS API: "
-            f"{len(closed)} closed candles"
-        )
+        data=await fetch_binance_ws_history(symbol,tf,300)
+        closed=data[:-1] if len(data)>1 else []
+        q=bars[(symbol,tf)]; q.clear(); q.extend(closed)
+        if q: latest[(symbol,tf)]=analyze(symbol,tf)
+        print(f"Loaded {symbol} {tf} via Binance WS API: {len(closed)} closed candles")
         return len(closed)
-
     except Exception as ws_exc:
         print(f"WS history error {symbol} {tf}: {ws_exc}")
-
-    # REST fallback remains available if the WebSocket API is unavailable.
     try:
-        data = await asyncio.to_thread(
-            fetch_binance,
-            symbol,
-            tf,
-            300,
-        )
-
-        closed = data[:-1] if len(data) > 1 else []
-        q = bars[(symbol, tf)]
-        q.clear()
-        q.extend(closed)
-
-        if q:
-            latest[(symbol, tf)] = analyze(symbol, tf)
-
-        print(
-            f"Loaded {symbol} {tf} via REST fallback: "
-            f"{len(closed)} closed candles"
-        )
+        data=await asyncio.to_thread(fetch_binance,symbol,tf,300)
+        closed=data[:-1] if len(data)>1 else []
+        q=bars[(symbol,tf)]; q.clear(); q.extend(closed)
+        if q: latest[(symbol,tf)]=analyze(symbol,tf)
+        print(f"Loaded {symbol} {tf} via REST fallback: {len(closed)} closed candles")
         return len(closed)
-
     except Exception as rest_exc:
         print(f"History error {symbol} {tf}: {rest_exc}")
         return 0
@@ -838,7 +603,7 @@ async def binance_stream():
 
 @app.on_event("startup")
 async def startup():
-    # Start the WebSocket immediately so Render is live even if REST fails.
+    # Start the live WebSocket immediately so Render receives closed candles continuously.
     background_tasks.append(
         asyncio.create_task(binance_stream())
     )
@@ -885,7 +650,7 @@ async def health():
 
     return {
         "status": "ok",
-        "service": "AI Live Signal Bot V19",
+        "service": "AI Live Signal Bot V21",
         "binance": (
             "LIVE"
             if age is not None and age < 30
